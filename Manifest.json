@@ -1,21 +1,15 @@
 {
   "manifest_version": 3,
-  "name": "Domain Allow List Extension",
-  "version": "1.1",
-  "description": "Allows access only to microsoft.com and google.com",
-  "permissions": ["declarativeNetRequest"],
+  "name": "Dynamic Allow List Extension",
+  "version": "1.2",
+  "description": "Allows access to domains specified in a text file",
+  "permissions": ["declarativeNetRequest", "storage"],
   "host_permissions": ["<all_urls>"],
   "background": {
     "service_worker": "background.js"
   },
-  "declarative_net_request": {
-    "rule_resources": [
-      {
-        "id": "allowlist",
-        "enabled": true,
-        "path": "rules.json"
-      }
-    ]
-  }
+  "options_ui": {
+  "page": "options.html",
+  "open_in_tab": true
 }
-  
+}

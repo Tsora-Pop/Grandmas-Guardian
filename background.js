@@ -1,44 +1,47 @@
-chrome.runtime.onInstalled.addListener(() => {
-    // On installation, ensure the allow list rules are active
-    chrome.declarativeNetRequest.updateDynamicRules({
-      addRules: [
-        {
-          id: 1,
+function updateAllowList() {
+    chrome.storage.local.get("allowList", (data) => {
+      const allowList = data.allowList || [];
+      const dynamicRules = [];
+  
+      // Add "allow" rules for each domain in the allow list
+      allowList.forEach((domain, index) => {
+        dynamicRules.push({
+          id: index + 1,
           priority: 1,
           action: { type: "allow" },
           condition: {
-            urlFilter: "*://*.microsoft.com/*",
+            urlFilter: `*://*.${domain}/*`,
             resourceTypes: ["main_frame", "sub_frame"]
           }
-        },
-        {
-          id: 2,
-          priority: 1,
-          action: { type: "allow" },
-          condition: {
-            urlFilter: "*://*.google.com/*",
-            resourceTypes: ["main_frame", "sub_frame"]
-          }
-        },
-        {
-          id: 3,
-          priority: 1,
-          action: { type: "allow" },
-          condition: {
-            urlFilter: "*://*.youtube.com/*",
-            resourceTypes: ["main_frame", "sub_frame"]
-          }
-        },
-        {
-          id: 4,
-          priority: 1,
-          action: { type: "block" },
-          condition: {
-            urlFilter: "*",
-            resourceTypes: ["main_frame", "sub_frame"]
-          }
+        });
+      });
+  
+      // Redirect all blocked requests to the custom block page
+      dynamicRules.push({
+        id: allowList.length + 1,
+        priority: 1,
+        action: { type: "redirect", redirect: { url: chrome.runtime.getURL("blockpage.html") } },
+        condition: {
+          urlFilter: "*",
+          resourceTypes: ["main_frame", "sub_frame"]
         }
-      ]
-      // Omit removeRules entirely if no rules are being removed
+      });
+  
+      // Apply the rules
+      chrome.declarativeNetRequest.updateDynamicRules({
+        addRules: dynamicRules,
+        removeRuleIds: Array.from({ length: 100 }, (_, i) => i + 1) // Clear all existing rules
+      });
     });
+  }
+  
+  chrome.runtime.onInstalled.addListener(() => {
+    updateAllowList();
   });
+  
+  chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName === "local" && changes.allowList) {
+      updateAllowList();
+    }
+  });
+  
