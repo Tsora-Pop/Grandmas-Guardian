@@ -1,12 +1,22 @@
 function displayAllowList() {
-  chrome.storage.local.get("allowList", (data) => {
+  chrome.storage.local.get(["allowList", "allowListEnabled"], (data) => {
     const allowList = data.allowList || [];
+    const allowListEnabled = data.allowListEnabled ?? true;
+
+    document.getElementById("enableToggle").checked = allowListEnabled;
+
     const listContainer = document.getElementById("allowList");
     listContainer.innerHTML = ""; // Clear previous entries
 
     allowList.forEach((domain) => {
       const listItem = document.createElement("li");
-      listItem.textContent = domain;
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.className = "domainCheckbox";
+      checkbox.value = domain;
+
+      listItem.appendChild(checkbox);
+      listItem.appendChild(document.createTextNode(domain));
       listContainer.appendChild(listItem);
     });
   });
@@ -20,9 +30,15 @@ document.getElementById("uploadBtn").addEventListener("click", () => {
     const reader = new FileReader();
     reader.onload = function (event) {
       const domains = event.target.result.split("\n").map((domain) => domain.trim());
-      chrome.storage.local.set({ allowList: domains }, () => {
-        alert("Allow list updated!");
-        displayAllowList();
+      
+      // Send domains to background.js for merging with top sites
+      chrome.runtime.sendMessage({ type: "UPLOAD_DOMAINS", domains }, (response) => {
+        if (response.success) {
+          alert("Allow list updated with uploaded domains and top sites!");
+          displayAllowList();
+        } else {
+          alert("Error updating allow list.");
+        }
       });
     };
     reader.readAsText(file);
@@ -31,6 +47,27 @@ document.getElementById("uploadBtn").addEventListener("click", () => {
   }
 });
 
-document.addEventListener("DOMContentLoaded", displayAllowList);
+document.getElementById("enableToggle").addEventListener("change", (event) => {
+  const isEnabled = event.target.checked;
+  chrome.storage.local.set({ allowListEnabled: isEnabled }, () => {
+    alert(`Allow listing ${isEnabled ? "enabled" : "disabled"}!`);
+    displayAllowList();
+  });
+});
 
-  
+document.getElementById("removeBtn").addEventListener("click", () => {
+  const checkedBoxes = document.querySelectorAll(".domainCheckbox:checked");
+  const domainsToRemove = Array.from(checkedBoxes).map((checkbox) => checkbox.value);
+
+  chrome.storage.local.get("allowList", (data) => {
+    const allowList = data.allowList || [];
+    const updatedAllowList = allowList.filter((domain) => !domainsToRemove.includes(domain));
+
+    chrome.storage.local.set({ allowList: updatedAllowList }, () => {
+      alert("Selected domains removed from the allow list!");
+      displayAllowList(); // Refresh the list
+    });
+  });
+});
+
+document.addEventListener("DOMContentLoaded", displayAllowList);
