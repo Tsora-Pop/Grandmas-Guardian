@@ -30,10 +30,9 @@ document.getElementById("uploadBtn").addEventListener("click", () => {
     const reader = new FileReader();
     reader.onload = function (event) {
       const domains = event.target.result.split("\n").map((domain) => domain.trim());
-      
-      // Send domains to background.js for merging with top sites
+      // Send domains to background.js for merging with top sites.
       chrome.runtime.sendMessage({ type: "UPLOAD_DOMAINS", domains }, (response) => {
-        if (response.success) {
+        if (response && response.success) {
           alert("Allow list updated with uploaded domains and top sites!");
           displayAllowList();
         } else {
@@ -65,7 +64,7 @@ document.getElementById("removeBtn").addEventListener("click", () => {
 
     chrome.storage.local.set({ allowList: updatedAllowList }, () => {
       alert("Selected domains removed from the allow list!");
-      displayAllowList(); // Refresh the list
+      displayAllowList(); // Refresh the list.
     });
   });
 });
