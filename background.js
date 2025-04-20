@@ -1,4 +1,3 @@
-// Updates the dynamic allowlist rules and block exceptions.
 function updateAllowList() {
   chrome.storage.local.get(["allowList", "allowListEnabled"], (data) => {
     const allowList = data.allowList || [];
@@ -6,18 +5,16 @@ function updateAllowList() {
     const dynamicRules = [];
 
     if (allowListEnabled) {
-      // 1. Add block exception rules for unsafe subdomains (priority 110).
-      // These rules use a regexFilter since 'regexSubstitution' requires it.
+      // 1. Block exception rules for unsafe subdomains (priority 110)
       const blockedSubdomains = [
         "remoteassistance.support.services.microsoft.com",
         "remotedesktop.google.com"
       ];
       blockedSubdomains.forEach((domain, index) => {
-        // Escape the domain so it can be safely used in a regex.
         const escapedDomain = domain.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         dynamicRules.push({
           id: 1000 + index,
-          priority: 110, // Highest priority to ensure these subdomains stay blocked.
+          priority: 110,
           action: {
             type: "redirect",
             redirect: {
@@ -31,14 +28,13 @@ function updateAllowList() {
         });
       });
 
-      // 2. Add allow rules for domains on the allow list (priority 100).
+      // 2. Add allow rules for domains on the allow list (priority 100)
       allowList.forEach((domain, index) => {
         dynamicRules.push({
-          id: index + 1, // IDs starting from 1.
+          id: index + 1,
           priority: 100,
           action: { type: "allow" },
           condition: {
-            // Allow traffic for all subdomains of the allowed domain.
             urlFilter: `*://*.${domain}/*`,
             resourceTypes: ["main_frame", "sub_frame"]
           }
@@ -91,7 +87,7 @@ function mergeUploadedDomainsWithTopSites(uploadedDomains) {
             }
           })
           .filter(Boolean)
-          .slice(0, 20); // Limit to top 20 domains.
+          .slice(0, 20);
         mergeDomains(uploadedDomains, topDomains);
       });
     } else {
@@ -121,13 +117,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 });
 
-// On installation, set default settings and set initial allow list.
 chrome.runtime.onInstalled.addListener(() => {
   chrome.storage.local.set({ allowListEnabled: true, includeTopSites: true });
   updateAllowList();
 });
 
-// When changes are made to allowList or allowListEnabled directly update the rules.
 chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName === "local" && (changes.allowList || changes.allowListEnabled)) {
     updateAllowList();

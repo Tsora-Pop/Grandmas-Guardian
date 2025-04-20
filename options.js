@@ -3,20 +3,16 @@ function displayAllowList() {
     const allowList = data.allowList || [];
     const allowListEnabled = data.allowListEnabled ?? true;
     const includeTopSites = data.includeTopSites ?? true;
-
     document.getElementById("enableToggle").checked = allowListEnabled;
     document.getElementById("includeTopSites").checked = includeTopSites;
-
     const listContainer = document.getElementById("allowList");
     listContainer.innerHTML = ""; // Clear previous entries
-
     allowList.forEach((domain) => {
       const listItem = document.createElement("li");
       const checkbox = document.createElement("input");
       checkbox.type = "checkbox";
       checkbox.className = "domainCheckbox";
       checkbox.value = domain;
-
       listItem.appendChild(checkbox);
       listItem.appendChild(document.createTextNode(domain));
       listContainer.appendChild(listItem);
@@ -27,7 +23,6 @@ function displayAllowList() {
 document.getElementById("uploadBtn").addEventListener("click", () => {
   const fileInput = document.getElementById("fileInput");
   const file = fileInput.files[0];
-
   if (file) {
     const reader = new FileReader();
     reader.onload = function (event) {
@@ -68,14 +63,12 @@ document.getElementById("includeTopSites").addEventListener("change", (event) =>
 document.getElementById("removeBtn").addEventListener("click", () => {
   const checkedBoxes = document.querySelectorAll(".domainCheckbox:checked");
   const domainsToRemove = Array.from(checkedBoxes).map((checkbox) => checkbox.value);
-
   chrome.storage.local.get("allowList", (data) => {
     const allowList = data.allowList || [];
     const updatedAllowList = allowList.filter((domain) => !domainsToRemove.includes(domain));
-
     chrome.storage.local.set({ allowList: updatedAllowList }, () => {
       alert("Selected domains removed from the allow list!");
-      displayAllowList(); // Refresh the list.
+      displayAllowList();
     });
   });
 });

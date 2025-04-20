@@ -17,5 +17,13 @@
       "resources": ["blockpage.html", "blockpage.js"],
       "matches": ["<all_urls>"]
     }
+  ],
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["scamBanner.js"],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
   ]
 }
