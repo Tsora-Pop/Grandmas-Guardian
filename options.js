@@ -1,9 +1,11 @@
 function displayAllowList() {
-  chrome.storage.local.get(["allowList", "allowListEnabled"], (data) => {
+  chrome.storage.local.get(["allowList", "allowListEnabled", "includeTopSites"], (data) => {
     const allowList = data.allowList || [];
     const allowListEnabled = data.allowListEnabled ?? true;
+    const includeTopSites = data.includeTopSites ?? true;
 
     document.getElementById("enableToggle").checked = allowListEnabled;
+    document.getElementById("includeTopSites").checked = includeTopSites;
 
     const listContainer = document.getElementById("allowList");
     listContainer.innerHTML = ""; // Clear previous entries
@@ -29,7 +31,9 @@ document.getElementById("uploadBtn").addEventListener("click", () => {
   if (file) {
     const reader = new FileReader();
     reader.onload = function (event) {
-      const domains = event.target.result.split("\n").map((domain) => domain.trim());
+      const domains = event.target.result.split("\n")
+        .map((domain) => domain.trim())
+        .filter(Boolean);
       // Send domains to background.js for merging with top sites.
       chrome.runtime.sendMessage({ type: "UPLOAD_DOMAINS", domains }, (response) => {
         if (response && response.success) {
@@ -51,6 +55,13 @@ document.getElementById("enableToggle").addEventListener("change", (event) => {
   chrome.storage.local.set({ allowListEnabled: isEnabled }, () => {
     alert(`Allow listing ${isEnabled ? "enabled" : "disabled"}!`);
     displayAllowList();
+  });
+});
+
+document.getElementById("includeTopSites").addEventListener("change", (event) => {
+  const includeTopSites = event.target.checked;
+  chrome.storage.local.set({ includeTopSites: includeTopSites }, () => {
+    alert(`Top 20 Work Safe Domains inclusion ${includeTopSites ? "enabled" : "disabled"}!`);
   });
 });
 
