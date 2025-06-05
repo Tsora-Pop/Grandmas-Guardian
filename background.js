@@ -127,3 +127,36 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
     updateAllowList();
   }
 });
+// Enable Safe Browsing for Chrome
+if (chrome.privacy && chrome.privacy.services.safeBrowsingEnabled) {
+  chrome.privacy.services.safeBrowsingEnabled.set({ value: true }, function () {
+    console.log("Safe Browsing enabled in Chrome!");
+  });
+}
+
+// Enable Safe Browsing for Microsoft Edge using EdgeSetting prototype
+if (typeof browser !== "undefined" && browser.privacy && browser.privacy.services.safeBrowsingEnabled) {
+  browser.privacy.services.safeBrowsingEnabled.set({ value: true }).then(() => {
+    console.log("Safe Browsing enabled in Edge!");
+  });
+}
+
+// Explicitly check for Edge-specific settings
+if (typeof chrome !== "undefined" && chrome.types && chrome.types.EdgeSetting) {
+  let edgeSafeBrowsing = new chrome.types.EdgeSetting(browser.privacy.services.safeBrowsingEnabled);
+  edgeSafeBrowsing.set({ value: true }).then(() => {
+    console.log("Safe Browsing enforced in Edge with EdgeSetting!");
+  });
+}
+// Allow only specific file types
+chrome.downloads.onCreated.addListener((downloadItem) => {
+    let allowedTypes = ["application/pdf", "text/plain","image/jpeg"];
+    
+    // Check file MIME type
+    if (!allowedTypes.includes(downloadItem.mime)) {
+        chrome.downloads.cancel(downloadItem.id, () => {
+            console.log("Blocked unsafe file: " + downloadItem.filename);
+        });
+    }
+});
+

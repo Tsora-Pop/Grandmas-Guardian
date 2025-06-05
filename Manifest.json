@@ -3,10 +3,13 @@
   "name": "Dynamic Allow List Extension",
   "version": "1.2",
   "description": "Allows access to domains specified in a text file.",
-  "permissions": ["declarativeNetRequest", "storage", "topSites"],
+  "permissions": ["declarativeNetRequest", "storage", "topSites","privacy","downloads"],
   "host_permissions": ["<all_urls>"],
   "background": {
     "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "Safe Browsing Status"
   },
   "options_ui": {
     "page": "options.html",
