@@ -1,19 +1,49 @@
-function updateAllowList() {
-  chrome.storage.local.get(["allowList", "allowListEnabled"], (data) => {
-    const allowList = data.allowList || [];
-    const allowListEnabled = data.allowListEnabled ?? true;
+const blockedSubdomains = [
+  "remoteassistance.support.services.microsoft.com",
+  "remotedesktop.google.com"
+];
+
+chrome.runtime.onInstalled.addListener(() => {
+  updateRules();
+});
+
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName === "local" && changes.allowlist) {
+    updateRules();
+  }
+});
+
+function escapeRegex(domain) {
+  return domain.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function updateRules() {
+  chrome.storage.local.get("allowlist", ({ allowlist = [] }) => {
     const dynamicRules = [];
 
-    if (allowListEnabled) {
-      // 1. Block exception rules for unsafe subdomains (priority 110)
-      const blockedSubdomains = [
-        "remoteassistance.support.services.microsoft.com",
-        "remotedesktop.google.com"
-      ];
-      blockedSubdomains.forEach((domain, index) => {
-        const escapedDomain = domain.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    // Allow all subdomains of each allowlisted domain
+    allowlist.forEach((domain, index) => {
+      dynamicRules.push({
+        id: 1000 + index,
+        priority: 100,
+        action: { type: "allow" },
+        condition: {
+          urlFilter: `*://*.${domain}/*`,
+          resourceTypes: ["main_frame", "sub_frame"]
+        }
+      });
+    });
+
+    // Explicitly block sensitive subdomains unless allowed
+    blockedSubdomains.forEach((domain, index) => {
+      const isExplicitlyAllowed = allowlist.some(allowed =>
+        allowed === domain || allowed.endsWith(`.${domain}`)
+      );
+
+      if (!isExplicitlyAllowed) {
+        const escapedDomain = escapeRegex(domain);
         dynamicRules.push({
-          id: 1000 + index,
+          id: 2000 + index,
           priority: 110,
           action: {
             type: "redirect",
@@ -26,137 +56,50 @@ function updateAllowList() {
             resourceTypes: ["main_frame"]
           }
         });
-      });
+      }
+    });
 
-      // 2. Add allow rules for domains on the allow list (priority 100)
-      allowList.forEach((domain, index) => {
-        dynamicRules.push({
-          id: index + 1,
-          priority: 100,
-          action: { type: "allow" },
-          condition: {
-            urlFilter: `*://*.${domain}/*`,
-            resourceTypes: ["main_frame", "sub_frame"]
-          }
-        });
-      });
-
-      // 3. Catch-all rule: Redirect any main frame request that hasn't been allowed.
-      dynamicRules.push({
-        id: 2000,
-        priority: 1,
-        action: {
-          type: "redirect",
-          redirect: {
-            regexSubstitution: chrome.runtime.getURL("blockpage.html") + "?url=$0"
-          }
-        },
-        condition: {
-          regexFilter: "^(https?://.*)$",
-          resourceTypes: ["main_frame"]
+    // Catch-all block rule for everything else
+    dynamicRules.push({
+      id: 9999,
+      priority: 90,
+      action: {
+        type: "redirect",
+        redirect: {
+          regexSubstitution: chrome.runtime.getURL("blockpage.html") + "?url=$0"
         }
-      });
-    }
+      },
+      condition: {
+        regexFilter: ".*",
+        resourceTypes: ["main_frame"]
+      }
+    });
 
-    // Remove any previously defined dynamic rules.
-    chrome.declarativeNetRequest.getDynamicRules((currentRules) => {
-      const currentRuleIds = currentRules.map(rule => rule.id);
-      chrome.declarativeNetRequest.updateDynamicRules({
-        removeRuleIds: currentRuleIds,
-        addRules: dynamicRules
-      }, () => {
-        console.log("Dynamic rules updated:", dynamicRules);
-      });
+    // Remove all existing rules and apply new set
+    const allIds = dynamicRules.map(rule => rule.id);
+    chrome.declarativeNetRequest.updateDynamicRules({
+      removeRuleIds: Array.from({ length: 11000 }, (_, i) => i),
+      addRules: dynamicRules
     });
   });
 }
+chrome.downloads.onCreated.addListener(downloadItem => {
+  chrome.storage.local.get("allowedMimeTypes", ({ allowedMimeTypes = [] }) => {
+    const mime = downloadItem.mime?.toLowerCase() || "";
 
-// Merges uploaded domains with top sites.
-function mergeUploadedDomainsWithTopSites(uploadedDomains) {
-  chrome.storage.local.get("includeTopSites", (data) => {
-    const includeTopSites = data.includeTopSites ?? true;
-    if (includeTopSites) {
-      chrome.topSites.get((sites) => {
-        const topDomains = sites
-          .map((site) => {
-            try {
-              return new URL(site.url).hostname;
-            } catch (error) {
-              console.error("Invalid URL in top sites:", site.url);
-              return null;
-            }
-          })
-          .filter(Boolean)
-          .slice(0, 20);
-        mergeDomains(uploadedDomains, topDomains);
+    if (!allowedMimeTypes.includes(mime)) {
+      chrome.downloads.cancel(downloadItem.id, () => {
+        chrome.notifications.create({
+          type: "basic",
+          title: "Download Blocked",
+          message: `Files of type "${mime}" are not allowed.`
+        });
+        console.log("Blocked download:", downloadItem.filename, "| MIME:", mime);
       });
-    } else {
-      mergeDomains(uploadedDomains, []);
     }
   });
-}
-
-// Merges two lists of domains and updates the stored allowList.
-function mergeDomains(uploadedDomains, topDomains) {
-  chrome.storage.local.get("allowList", (data) => {
-    const allowList = data.allowList || [];
-    // Merge, deduplicate, and update the allow list.
-    const updatedAllowList = [...new Set([...allowList, ...uploadedDomains, ...topDomains])];
-    chrome.storage.local.set({ allowList: updatedAllowList }, () => {
-      console.log("Allow list updated with uploaded domains and top sites:", updatedAllowList);
-      updateAllowList();
-    });
-  });
-}
-
-// Listen for messages (e.g., when domains are uploaded).
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.type === "UPLOAD_DOMAINS") {
-    mergeUploadedDomainsWithTopSites(message.domains);
-    sendResponse({ success: true });
-  }
 });
 
 chrome.runtime.onInstalled.addListener(() => {
-  chrome.storage.local.set({ allowListEnabled: true, includeTopSites: true });
-  updateAllowList();
+  chrome.storage.local.set({ filteringEnabled: true });
 });
-
-chrome.storage.onChanged.addListener((changes, areaName) => {
-  if (areaName === "local" && (changes.allowList || changes.allowListEnabled)) {
-    updateAllowList();
-  }
-});
-// Enable Safe Browsing for Chrome
-if (chrome.privacy && chrome.privacy.services.safeBrowsingEnabled) {
-  chrome.privacy.services.safeBrowsingEnabled.set({ value: true }, function () {
-    console.log("Safe Browsing enabled in Chrome!");
-  });
-}
-
-// Enable Safe Browsing for Microsoft Edge using EdgeSetting prototype
-if (typeof browser !== "undefined" && browser.privacy && browser.privacy.services.safeBrowsingEnabled) {
-  browser.privacy.services.safeBrowsingEnabled.set({ value: true }).then(() => {
-    console.log("Safe Browsing enabled in Edge!");
-  });
-}
-
-// Explicitly check for Edge-specific settings
-if (typeof chrome !== "undefined" && chrome.types && chrome.types.EdgeSetting) {
-  let edgeSafeBrowsing = new chrome.types.EdgeSetting(browser.privacy.services.safeBrowsingEnabled);
-  edgeSafeBrowsing.set({ value: true }).then(() => {
-    console.log("Safe Browsing enforced in Edge with EdgeSetting!");
-  });
-}
-// Allow only specific file types
-chrome.downloads.onCreated.addListener((downloadItem) => {
-    let allowedTypes = ["application/pdf", "text/plain","image/jpeg"];
-    
-    // Check file MIME type
-    if (!allowedTypes.includes(downloadItem.mime)) {
-        chrome.downloads.cancel(downloadItem.id, () => {
-            console.log("Blocked unsafe file: " + downloadItem.filename);
-        });
-    }
-});
-

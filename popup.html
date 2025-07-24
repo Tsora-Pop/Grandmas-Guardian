@@ -1,22 +1,53 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <meta charset="UTF-8">
-  <title>Allow List</title>
+  <title>Grandma's Guardian</title>
   <style>
-    body {
-      font-family: sans-serif;
-      margin: 10px;
-      width: 220px;
-    }
-    .toggle {
-      display: flex;
-      align-items: center;
-      margin-bottom: 10px;
-    }
-    .toggle input[type="checkbox"] {
-      margin-right: 8px;
-    }
+    body { font-family: Arial; padding: 10px; }
+    input { margin-top: 10px; }
+    button { margin: 5px; }
   </style>
 </head>
 <body>
+  <h2>Grandma's Guardian</h2>
+  <p>Below are the allowed domains, files, and text. No employee over phone, email, or webcam will ever ask you to change these, and if someone is, hangup and shutdown your computer. Call a close family member or friend that uses technology. </p>
+  <h3>Allowed Domains</h3>
+  <div id="domainList"></div>
+  <input type="text" id="domainInput" placeholder="Add domain">
+  <button id="addBtn">Add Domain</button>
+  <br>
+  <button id="includeTopSites">Include Top 20 Sites</button>
+  <button id="removeAllBtn">Remove All</button>
+<h4>Load Domains from .txt File</h4>
+<input type="text" id="txtUrlInput" placeholder="Paste .txt URL here" style="width:100%;">
+<button id="loadCustomTxtBtn">Load List</button>
+<h4>Allowed MIME Types</h4>
+<h5>Reference: https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/MIME_types/Common_types</h5>
+<div id="mimeList"></div>
+<input type="text" id="mimeInput" placeholder="e.g. application/pdf">
+<button id="addMimeBtn">Add MIME Type</button>
+<button id="removeAllMimesBtn">Remove All MIME Types</button>
+
+<h4>Load MIME Types from .txt File</h4>
+<input type="text" id="mimeUrlInput" placeholder="Paste MIME type list URL">
+<button id="loadMimeListBtn">Load MIME Types</button>
+<h4>Scam Terms Filter</h4>
+<label>
+  <input type="checkbox" id="toggleFiltering">
+  Enable Scam Term Filtering
+</label>
+
+<div id="scamTermList"></div>
+<input type="text" id="scamInput" placeholder="Add scam term">
+<button id="addScamBtn">Add Term</button>
+<button id="removeAllScamBtn">Remove All Terms</button>
+
+<h4>Load Scam Terms from .txt File</h4>
+<input type="text" id="scamUrlInput" placeholder="Paste scam term list URL">
+<button id="loadScamListBtn">Load Scam Terms</button>
+
+
+<script src="popup.js"></script>
+  
+</body>
+</html>
