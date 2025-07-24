@@ -4,6 +4,7 @@ const blockedSubdomains = [
 ];
 
 chrome.runtime.onInstalled.addListener(() => {
+  chrome.storage.local.set({ filteringEnabled: true });
   updateRules();
 });
 
@@ -21,10 +22,22 @@ function updateRules() {
   chrome.storage.local.get("allowlist", ({ allowlist = [] }) => {
     const dynamicRules = [];
 
-    // Allow all subdomains of each allowlisted domain
+    //  Allow both apex and subdomains for each allowlisted domain
     allowlist.forEach((domain, index) => {
+      // Apex domain
       dynamicRules.push({
-        id: 1000 + index,
+        id: 1000 + index * 2,
+        priority: 100,
+        action: { type: "allow" },
+        condition: {
+          urlFilter: `*://${domain}/*`,
+          resourceTypes: ["main_frame", "sub_frame"]
+        }
+      });
+
+      // Subdomains
+      dynamicRules.push({
+        id: 1000 + index * 2 + 1,
         priority: 100,
         action: { type: "allow" },
         condition: {
@@ -34,7 +47,7 @@ function updateRules() {
       });
     });
 
-    // Explicitly block sensitive subdomains unless allowed
+    //  Block sensitive subdomains unless explicitly allowed
     blockedSubdomains.forEach((domain, index) => {
       const isExplicitlyAllowed = allowlist.some(allowed =>
         allowed === domain || allowed.endsWith(`.${domain}`)
@@ -59,7 +72,7 @@ function updateRules() {
       }
     });
 
-    // Catch-all block rule for everything else
+    // Catch-all block rule
     dynamicRules.push({
       id: 9999,
       priority: 90,
@@ -75,7 +88,7 @@ function updateRules() {
       }
     });
 
-    // Remove all existing rules and apply new set
+    //  Remove all existing rules and apply new set
     const allIds = dynamicRules.map(rule => rule.id);
     chrome.declarativeNetRequest.updateDynamicRules({
       removeRuleIds: Array.from({ length: 11000 }, (_, i) => i),
@@ -83,6 +96,8 @@ function updateRules() {
     });
   });
 }
+
+//  Download MIME filtering
 chrome.downloads.onCreated.addListener(downloadItem => {
   chrome.storage.local.get("allowedMimeTypes", ({ allowedMimeTypes = [] }) => {
     const mime = downloadItem.mime?.toLowerCase() || "";
@@ -98,8 +113,4 @@ chrome.downloads.onCreated.addListener(downloadItem => {
       });
     }
   });
-});
-
-chrome.runtime.onInstalled.addListener(() => {
-  chrome.storage.local.set({ filteringEnabled: true });
 });
