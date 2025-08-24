@@ -254,6 +254,26 @@ chrome.storage.local.get("blockedDownloads", ({ blockedDownloads = [] }) => {
   });
 });
 
+// Clear Blocked Requests
+const clearLogBtn = document.getElementById('clearBlockedLogBtn');
+clearLogBtn.addEventListener('click', () => {
+  // 1) Empty the UI
+  document.getElementById('blockedLogList').innerHTML = '';
+  // 2) Remove from storage
+  chrome.storage.local.remove('blockedLog', () => {
+    console.log('✔️ Blocked requests cleared');
+  });
+});
+
+// Clear Blocked Downloads
+const clearDownloadsBtn = document.getElementById('clearBlockedDownloadsBtn');
+clearDownloadsBtn.addEventListener('click', () => {
+  document.getElementById('blockedDownloadsList').innerHTML = '';
+  chrome.storage.local.remove('blockedDownloads', () => {
+    console.log('✔️ Blocked downloads cleared');
+  });
+});
+
 
 // Initial render
 renderList();
