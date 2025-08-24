@@ -2,6 +2,11 @@
   "manifest_version": 3,
   "name": "Grandma's Guardian",
   "version": "1.0",
+  "icons": {
+    "16": "Guardian16.png",
+    "48": "Guardian48.png",
+    "128": "Guardian128.png"
+  },
   "permissions": [
     "declarativeNetRequest",
     "declarativeNetRequestWithHostAccess",
