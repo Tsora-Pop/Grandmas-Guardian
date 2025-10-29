@@ -2,7 +2,7 @@
 
 A extension to protect your grandma, grandpa, or anyone! Introducing "Grandma's Guardian", a security tool you can setup for yourself or a loved one to reduce the likelihood they become victims of an online scam. Simply Install, add your top 20, delete any domains you know the user or yourself won't need, and safely browse! This is not intended as an Ad blocker, as advertisements will load on the web page. Best of all: Absolutely no data is collected on you by the developers. We just want you to empower family to be as safe as possible online. This extension will work on any Chromium based browser. Firefox support coming soon (and mobile Firefox supports extensions well). 
 
-Features:  
+<b>Features:</b>  
 Manifest V3  
 Domain Allow Listing: Only allow navigation to websites explicitly permitted! You no longer have to fear popups or clicking a malicious link.  
 MIME Type Allow Listing: Only allow specific file types to be downloaded from any platform  
@@ -10,13 +10,13 @@ Semantic Filtering: Hide certain key words from your user so they are less likel
 Remote Lists: Leverage the power of the open source community to populate lists to leverage for domains, MIME types, and Semantic terms lists.   
 Top 20 Domain quick add: Quickly add the top websites a user visits to the allow list. 
 
-Supported Platforms:  
+<b>Supported Platforms:</b>  
 Windows  
 MacOS  
 ChromeOS
 Linux  
 
-Supported Browsers:  
+<b>Supported Browsers:</b>  
 Chrome  
 Edge  
 Brave  
