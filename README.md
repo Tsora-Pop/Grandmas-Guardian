@@ -10,6 +10,18 @@ Semantic Filtering: Hide certain key words from your user so they are less likel
 Remote Lists: Leverage the power of the open source community to populate lists to leverage for domains, MIME types, and Semantic terms lists.   
 Top 20 Domain quick add: Quickly add the top websites a user visits to the allow list. 
 
+Supported Platforms:
+Windows  
+MacOS  
+ChromeOS
+Linux  
+
+Supported Browsers:
+Chrome  
+Edge  
+Brave  
+Opera  
+
 Disclaimer: This browser extension is developed by someone who is active in the defensive cyber security community and based in North Carolina, United States. This tool's source code is open source, however contributions are not being added at this time. Several quality-of-life updates are expected in the future, as well as other enhancements to core features (block log exports, top 20 addition at install, etc). 
 
 Community Asks: Please creates lists that work for your community. Whether this be industry specific, other countries, or localities, and share them on GitHub! 
