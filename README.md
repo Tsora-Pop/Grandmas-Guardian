@@ -10,13 +10,13 @@ Semantic Filtering: Hide certain key words from your user so they are less likel
 Remote Lists: Leverage the power of the open source community to populate lists to leverage for domains, MIME types, and Semantic terms lists.   
 Top 20 Domain quick add: Quickly add the top websites a user visits to the allow list. 
 
-Supported Platforms:
+Supported Platforms:  
 Windows  
 MacOS  
 ChromeOS
 Linux  
 
-Supported Browsers:
+Supported Browsers:  
 Chrome  
 Edge  
 Brave  
