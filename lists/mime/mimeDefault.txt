@@ -1,0 +1,10 @@
+application/pdf
+image/jpeg
+image/png
+image/gif
+image/webp
+image/bmp
+image/tiff
+application/vnd.openxmlformats-officedocument.wordprocessingml.document
+application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+application/vnd.openxmlformats-officedocument.presentationml.presentation
