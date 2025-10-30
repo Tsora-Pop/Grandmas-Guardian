@@ -1,0 +1,17 @@
+audio/mpeg
+audio/ogg
+audio/wav
+audio/x-aiff
+audio/x-mpegurl
+audio/vnd.rn-realaudio
+audio/mp4
+audio/flac
+audio/webm
+video/mp4
+video/x-msvideo
+video/quicktime
+video/x-matroska
+video/webm
+video/ogg
+video/x-ms-wmv
+video/x-flv

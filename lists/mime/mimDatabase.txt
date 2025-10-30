@@ -1,0 +1,13 @@
+application/sql
+application/x-sql
+application/x-mysql
+application/x-postgresql
+application/x-sqlite3
+application/vnd.ms-excel
+application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+text/csv
+application/json
+application/xml
+application/x-db
+application/x-dbf
+application/x-msaccess

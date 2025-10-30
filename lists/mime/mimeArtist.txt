@@ -1,0 +1,14 @@
+image/jpeg
+image/png
+image/gif
+image/webp
+image/bmp
+image/tiff
+image/svg+xml
+image/vnd.adobe.photoshop
+application/x-coreldraw
+application/x-sketch
+application/x-krita
+application/x-gimp
+application/vnd.adobe.illustrator
+application/x-photoshop
