@@ -1,0 +1,8 @@
+# Fonts (for crafts, cards and design)
+font/ttf
+font/otf
+font/woff
+font/woff2
+application/x-font-ttf
+application/x-font-otf
+application/font-woff

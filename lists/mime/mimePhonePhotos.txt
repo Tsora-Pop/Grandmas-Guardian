@@ -1,0 +1,12 @@
+# Phone and camera photos (HEIC, AVIF, JPEG XL, camera RAW)
+image/heic
+image/heif
+image/heic-sequence
+image/heif-sequence
+image/avif
+image/jxl
+image/x-adobe-dng
+image/x-canon-cr2
+image/x-canon-cr3
+image/x-nikon-nef
+image/x-sony-arw

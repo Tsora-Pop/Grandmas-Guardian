@@ -1,0 +1,5 @@
+# Calendar invites and contact cards (.ics, .vcf)
+text/calendar
+text/vcard
+text/x-vcard
+text/directory

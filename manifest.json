@@ -1,7 +1,9 @@
 {
   "manifest_version": 3,
   "name": "Grandma's Guardian",
-  "version": "1.0",
+  "version": "2.1.0",
+  "description": "Protect a loved one from online scams: only allowed websites, only safe file types, and scam phrases hidden.",
+  "minimum_chrome_version": "116",
   "icons": {
     "16": "Guardian16.png",
     "48": "Guardian48.png",
@@ -9,21 +11,29 @@
   },
   "permissions": [
     "declarativeNetRequest",
-    "declarativeNetRequestWithHostAccess",
     "storage",
     "downloads",
     "topSites",
     "notifications",
-    "scripting"
+    "alarms"
   ],
   "host_permissions": [
     "<all_urls>"
   ],
   "action": {
-    "default_popup": "popup.html"
+    "default_popup": "popup.html",
+    "default_title": "Grandma's Guardian"
+  },
+  "storage": {
+    "managed_schema": "managed_schema.json"
+  },
+  "options_ui": {
+    "page": "popup.html",
+    "open_in_tab": true
   },
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "background.js",
+    "type": "module"
   },
   "web_accessible_resources": [
     {
@@ -35,7 +45,9 @@
     {
       "matches": ["<all_urls>"],
       "js": ["content.js"],
-      "run_at": "document_idle"
+      "run_at": "document_start",
+      "all_frames": true,
+      "match_about_blank": true
     }
   ]
 }

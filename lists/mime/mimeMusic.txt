@@ -1,0 +1,11 @@
+# Music and audio
+audio/mpeg
+audio/mp4
+audio/x-m4a
+audio/aac
+audio/ogg
+audio/opus
+audio/wav
+audio/x-wav
+audio/flac
+audio/webm

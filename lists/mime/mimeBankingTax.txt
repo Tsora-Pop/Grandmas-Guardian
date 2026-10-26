@@ -1,0 +1,9 @@
+# Bank and tax downloads (OFX, QFX, QBO, QIF)
+# Most banks also offer PDF and CSV, which are in other groups.
+application/x-ofx
+application/ofx
+application/vnd.intu.qfx
+application/x-qfx
+application/vnd.intu.qbo
+application/qif
+application/x-qif

@@ -1,109 +1,277 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Grandma's Guardian</title>
-<style>
-  body { font-family: Arial; padding: 10px; }
-  input { margin-top: 10px; }
-  button { margin: 5px; }
-  label { display: block; margin-top: 10px; }
-
-  .scrollable {
-    max-height: 150px;
-    overflow-y: auto;
-    border: 1px solid #ccc;
-    padding: 5px;
-    margin-top: 5px;
-    background-color: #f9f9f9;
-  }
-</style>
-
+  <link rel="stylesheet" href="ui.css">
+  <link rel="stylesheet" href="popup.css">
 </head>
 <body>
-  <h2>Grandma's Guardian</h2>
-  <p>
-    Below are the allowed domains, files, and text. No employee over phone,
-    email, or webcam will ever ask you to change these, and if someone is,
-    hang up and shut down your computer. Call a close family member or
-    friend that uses technology.
-  </p>
+  <!-- ================= First-time setup ================= -->
+  <section id="setup" class="setup" hidden aria-labelledby="setupTitle">
+    <header class="setup-head">
+      <img src="Guardian48.png" alt="" width="40" height="40">
+      <div>
+        <h1 id="setupTitle">Set up Grandma's Guardian</h1>
+        <p class="muted">A few quick steps. You can change everything later.</p>
+      </div>
+    </header>
+    <ol class="steps" id="stepDots" aria-hidden="true"></ol>
 
-  <!-- --- DOMAIN SECTION --- -->
-  <h3>Allowed Domains</h3>
-  <label>
-    <input type="checkbox" id="toggleDomainFiltering">
-    Enable Domain Allowlisting
-  </label>
-  <div id="domainList" class="scrollable"></div>
-  <input type="text" id="domainInput" placeholder="Add domain">
-  <button id="addBtn">Add Domain</button>
-  <br>
-  <button id="includeTopSites">Include Top 20 Sites</button>
-  <button id="removeAllBtn">Remove All</button>
+    <div class="step" data-step="1">
+      <h2>Who can they call for help?</h2>
+      <p>Your name and phone number appear on blocked pages, so if something is blocked they call you, not a stranger on the screen.</p>
+      <label class="field">Helper's name <input type="text" id="setupHelperName" placeholder="e.g. Tom" maxlength="60"></label>
+      <label class="field">Helper's phone <input type="tel" id="setupHelperPhone" placeholder="e.g. 919-555-0123" maxlength="40"></label>
+      <label class="field">Who uses this computer? <span class="muted small">(optional, shown in the activity log)</span><input type="text" id="setupPersonName" placeholder="e.g. Grandma Jean" maxlength="60"></label>
+    </div>
 
-  <h4>Load Domains from .txt File</h4>
-  <input
-    type="text"
-    id="txtUrlInput"
-    placeholder="Paste .txt URL here"
-    style="width: 100%;"
-  >
-  <button id="loadCustomTxtBtn">Load List</button>
-  <button id="loadDefaultDomainsBtn">Load Default Domain List</button>
-  <h2>Blocked Requests</h2>
-<div id="blockedLogList" class="scrollable"></div>
+    <div class="step" data-step="2">
+      <h2>Choose the protections</h2>
+      <p>All four are recommended. Lists download automatically and update once a day.</p>
+      <div id="setupToggles" class="stack"></div>
+      <p class="muted small" id="setupListStatus"></p>
+    </div>
 
-<button id="clearBlockedLogBtn">Clear Requests</button>
+    <div class="step" data-step="3">
+      <h2>Add the websites they use</h2>
+      <p>Only allowed websites will open. Add the sites this computer already visits most, then any others they need (their bank, church, pharmacy…).</p>
+      <button class="btn" id="setupTopSites" type="button">➕ Add most-visited websites</button>
+      <div class="add-row">
+        <input type="text" id="setupDomainInput" placeholder="e.g. mybank.com" aria-label="Website to allow">
+        <button class="btn" id="setupDomainAdd" type="button">Add</button>
+      </div>
+      <p class="muted small" id="setupDomainStatus" role="status"></p>
+    </div>
 
+    <div class="step" data-step="4">
+      <h2>Protect private (Incognito) windows</h2>
+      <div id="setupIncognitoOk" class="notice ok" hidden>✅ Private windows are protected.</div>
+      <div id="setupIncognitoBad">
+        <p>Chrome turns extensions <strong>off</strong> in private windows unless you allow it. Scammers know this.</p>
+        <ol class="howto">
+          <li>Click <strong>Open extension settings</strong>.</li>
+          <li>Turn on <strong>Allow in Incognito</strong>.</li>
+          <li>Come back here and click <strong>Check again</strong>.</li>
+        </ol>
+        <div class="row gap">
+          <button class="btn primary" id="setupOpenExt" type="button">Open extension settings</button>
+          <button class="btn" id="setupCheckIncognito" type="button">Check again</button>
+        </div>
+      </div>
+    </div>
 
-  <!-- --- MIME SECTION --- -->
-  <h4>Allowed MIME Types</h4>
-  <h5>
-    Reference:
-    https://mimetype.io/all-types
-  </h5>
-  <label>
-    <input type="checkbox" id="toggleMimeFiltering">
-    Enable MIME Type Allowlisting
-  </label>
-  <div id="mimeList" class="scrollable"></div>
-  <input type="text" id="mimeInput" placeholder="e.g. application/pdf">
-  <button id="addMimeBtn">Add MIME Type</button>
-  <button id="removeAllMimesBtn">Remove All MIME Types</button>
+    <div class="step" data-step="5">
+      <h2>All set 🎉</h2>
+      <ul class="tips">
+        <li>Pin the shield to the toolbar: click the puzzle piece 🧩 next to the address bar, then the pin.</li>
+        <li>Blocked pages offer an <strong>Ask to allow</strong> button. Requests show up here for you to approve.</li>
+        <li>For computers you manage, see the deployment notes in the README to force-install the extension and lock private windows by policy.</li>
+      </ul>
+    </div>
 
-  <h4>Load MIME Types from .txt File</h4>
-  <input
-    type="text"
-    id="mimeUrlInput"
-    placeholder="Paste MIME type list URL"
-  >
-  <button id="loadMimeListBtn">Load MIME Types</button>
-  <button id="loadDefaultMimesBtn">Load Default MIME List</button>
-  <h2>Blocked Downloads</h2>
-<ul id="blockedDownloadsList" class="scrollable"></ul>
+    <footer class="setup-nav">
+      <button class="btn" id="setupBack" type="button">Back</button>
+      <span class="spacer"></span>
+      <button class="btn primary" id="setupNext" type="button">Next</button>
+    </footer>
+  </section>
 
-<button id="clearBlockedDownloadsBtn">Clear Downloads</button>
+  <!-- ================= Main settings ================= -->
+  <div id="app">
+    <header class="app-head">
+      <img src="Guardian48.png" alt="" width="34" height="34">
+      <div class="title">
+        <h1>Grandma's Guardian</h1>
+        <p id="statusLine" class="status-line"></p>
+      </div>
+      <button class="icon-btn open-tab" id="openTab" type="button" title="Open in a full tab" aria-label="Open in a full tab">⤢</button>
+    </header>
 
-  <!-- --- SCAM TERMS SECTION --- -->
-  <h4>Scam Terms Filter</h4>
-  <label>
-    <input type="checkbox" id="toggleFiltering">
-    Enable Scam Term Filtering
-  </label>
-  <div id="scamTermList" class="scrollable"></div>
-  <input type="text" id="scamInput" placeholder="Add scam term">
-  <button id="addScamBtn">Add Term</button>
-  <button id="removeAllScamBtn">Remove All Terms</button>
+    <div id="helperCard" class="helper-card" hidden></div>
+    <p class="calm">No real company will ever ask you to change these settings over the phone. If someone does, hang up and call your helper.</p>
+    <div id="alerts" class="alerts" aria-live="polite"></div>
 
-  <h4>Load Scam Terms from .txt File</h4>
-  <input
-    type="text"
-    id="scamUrlInput"
-    placeholder="Paste scam term list URL"
-  >
-  <button id="loadScamListBtn">Load Scam Terms</button>
-  <button id="loadDefaultScamBtn">Load Default Scam Term List</button>
+    <nav class="tabs" role="tablist" aria-label="Sections">
+      <button class="tab" role="tab" data-tab="sites" aria-selected="true">Websites<span id="requestBadge" class="badge" hidden></span></button>
+      <button class="tab" role="tab" data-tab="downloads">Downloads</button>
+      <button class="tab" role="tab" data-tab="scam">Scam words</button>
+      <button class="tab" role="tab" data-tab="activity">Activity</button>
+      <button class="tab" role="tab" data-tab="settings">Settings</button>
+    </nav>
 
-  <script src="popup.js"></script>
+    <main>
+      <section class="panel" data-panel="sites" role="tabpanel">
+        <div id="requestsCard" class="card" hidden>
+          <h2>Requests to allow</h2>
+          <div id="requestList" class="rows"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <div>
+              <h2>Only allow these websites</h2>
+              <p class="muted small">Every other website is blocked.</p>
+            </div>
+            <label class="switch" title="Website allowlisting"><input type="checkbox" data-setting="domainFilteringEnabled" aria-label="Website allowlisting"><span class="track"></span></label>
+          </div>
+          <div class="editor" data-kind="allow"></div>
+          <button class="btn small" id="topSitesBtn" type="button">➕ Add most-visited websites</button>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <div>
+              <h2>Always block these websites</h2>
+              <p class="muted small">Blocked even if they are on the allowed list (remote-control tools, abused hosting).</p>
+            </div>
+            <label class="switch" title="Always-block list"><input type="checkbox" data-setting="denyFilteringEnabled" aria-label="Always-block list"><span class="track"></span></label>
+          </div>
+          <div class="editor" data-kind="deny"></div>
+        </div>
+      </section>
+
+      <section class="panel" data-panel="downloads" role="tabpanel" hidden>
+        <div class="card">
+          <div class="card-head">
+            <div>
+              <h2>Only allow these file types</h2>
+              <p class="muted small">Other downloads are stopped. Types are written like <code>application/pdf</code> (<a href="https://mimetype.io/all-types" target="_blank" rel="noopener">reference</a>).</p>
+            </div>
+            <label class="switch" title="File type allowlisting"><input type="checkbox" data-setting="mimeFilteringEnabled" aria-label="File type allowlisting"><span class="track"></span></label>
+          </div>
+          <div class="add-row">
+            <select id="mimePreset" aria-label="Add a preset group of file types"></select>
+            <button class="btn" id="mimePresetAdd" type="button">Add group</button>
+          </div>
+          <div class="editor" data-kind="mime"></div>
+        </div>
+      </section>
+
+      <section class="panel" data-panel="scam" role="tabpanel" hidden>
+        <div class="card">
+          <div class="card-head">
+            <div>
+              <h2>Hide text with scam words</h2>
+              <p class="muted small">Matching paragraphs are hidden behind a notice with a <em>Show anyway</em> button.</p>
+            </div>
+            <label class="switch" title="Scam word filtering"><input type="checkbox" data-setting="filteringEnabled" aria-label="Scam word filtering"><span class="track"></span></label>
+          </div>
+          <div class="editor" data-kind="scam"></div>
+        </div>
+      </section>
+
+      <section class="panel" data-panel="activity" role="tabpanel" hidden>
+        <div class="card">
+          <div class="card-head">
+            <div>
+              <h2>Save or share the activity log</h2>
+              <p class="muted small">Everything below, as a spreadsheet (CSV) or JSON file, saved to the Downloads folder.</p>
+            </div>
+          </div>
+          <div class="row gap wrap">
+            <button class="btn small" id="exportCsv" type="button">⬇ Export CSV</button>
+            <button class="btn small" id="exportJson" type="button">⬇ Export JSON</button>
+            <span id="exportStatus" class="muted small" role="status"></span>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head">
+            <h2>Blocked websites</h2>
+            <button class="btn small" data-clear="blockedLog" type="button">Clear</button>
+          </div>
+          <div id="blockedLogList" class="rows log"></div>
+        </div>
+        <div class="card">
+          <div class="card-head">
+            <div>
+              <h2>Scam text</h2>
+              <p class="muted small">Text that was hidden, and whether <em>Show anyway</em> was clicked.</p>
+            </div>
+            <button class="btn small" data-clear="scamLog" type="button">Clear</button>
+          </div>
+          <div id="scamLogList" class="rows log"></div>
+        </div>
+        <div class="card">
+          <div class="card-head">
+            <h2>Stopped downloads</h2>
+            <button class="btn small" data-clear="blockedDownloads" type="button">Clear</button>
+          </div>
+          <div id="blockedDownloadsList" class="rows log"></div>
+        </div>
+        <div class="card">
+          <div class="card-head">
+            <div>
+              <h2>Changes</h2>
+              <p class="muted small">Protections switched on or off, list changes, approvals.</p>
+            </div>
+            <button class="btn small" data-clear="auditLog" type="button">Clear</button>
+          </div>
+          <div id="auditLogList" class="rows log"></div>
+        </div>
+      </section>
+
+      <section class="panel" data-panel="settings" role="tabpanel" hidden>
+        <div class="card">
+          <h2>Helper</h2>
+          <p class="muted small">Shown on blocked pages and download notices.</p>
+          <label class="field">Name <input type="text" id="helperName" maxlength="60"></label>
+          <label class="field">Phone <input type="tel" id="helperPhone" maxlength="40"></label>
+          <label class="field">Who uses this computer <span class="muted small">(shown in logs)</span><input type="text" id="personName" maxlength="60"></label>
+          <div class="row gap">
+            <button class="btn primary" id="saveHelper" type="button">Save</button>
+            <span id="helperSaved" class="muted small" role="status"></span>
+          </div>
+        </div>
+        <div class="card" id="forwardCard">
+          <div class="card-head">
+            <div>
+              <h2>Send logs to a collector</h2>
+              <p class="muted small">For IT support and organisations: every event is posted as JSON to your HTTPS endpoint (Splunk HEC, Logstash or Fluent Bit HTTP input, Azure Logic App, n8n…). Undelivered events are kept and retried.</p>
+            </div>
+            <label class="switch" title="Forward logs"><input type="checkbox" id="forwardEnabled" aria-label="Forward logs"><span class="track"></span></label>
+          </div>
+          <div id="forwardDetails" class="stack">
+            <label class="field">Collector URL <input type="url" id="forwardUrl" placeholder="https://logs.example.com/ingest"></label>
+            <label class="field">Authorization header <span class="muted small">(optional, e.g. <code>Bearer …</code> or <code>Splunk …</code>)</span><input type="text" id="forwardAuth" autocomplete="off"></label>
+            <label class="field">Format
+              <select id="forwardFormat">
+                <option value="json">JSON array</option>
+                <option value="ndjson">NDJSON (one event per line)</option>
+                <option value="splunk">Splunk HEC</option>
+              </select>
+            </label>
+            <div class="row gap wrap">
+              <button class="btn primary" id="saveForward" type="button">Save</button>
+              <button class="btn" id="testForward" type="button">Send test event</button>
+              <span id="forwardStatusText" class="muted small" role="status"></span>
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <h2>Private (Incognito) windows</h2>
+          <p id="incognitoStatus"></p>
+          <button class="btn small" id="openExtPage" type="button">Open extension settings</button>
+        </div>
+        <div class="card">
+          <h2>Online lists</h2>
+          <p class="muted small">Online lists update automatically once a day.</p>
+          <div class="row gap wrap">
+            <button class="btn" id="syncAll" type="button">↻ Update all lists now</button>
+            <button class="btn" id="restoreDefaults" type="button">Restore default lists</button>
+          </div>
+          <p id="syncStatus" class="muted small" role="status"></p>
+        </div>
+        <div class="card">
+          <h2>Setup</h2>
+          <button class="btn" id="rerunSetup" type="button">Run the setup guide again</button>
+          <p class="muted small" id="version"></p>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script type="module" src="popup.js"></script>
 </body>
 </html>

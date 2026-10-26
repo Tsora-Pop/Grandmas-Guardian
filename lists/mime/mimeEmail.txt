@@ -1,0 +1,4 @@
+# Saved email messages (.eml, .msg)
+# Note: saved emails can contain attachments and links.
+message/rfc822
+application/vnd.ms-outlook

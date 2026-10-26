@@ -1,26 +1,36 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <title>Website Blocked</title>
-  <style>
-    body {
-      font-family: Arial, sans-serif;
-      text-align: center;
-      margin-top: 10%;
-    }
-    h1 {
-      color: #d9534f;
-    }
-    p {
-      font-size: 18px;
-      color: #5a5a5a;
-    }
-  </style>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Page blocked</title>
+  <link rel="stylesheet" href="ui.css">
 </head>
-<body>
-  <h1>Access Blocked</h1>
-  <p>The "Grandma's Guardian" extension has blocked this website because the domain is not on the allow list.</p>
-  <p id="blockedDomain"></p>
+<body class="blockpage">
+  <main class="block-card" aria-labelledby="title">
+    <img src="Guardian128.png" alt="" width="72" height="72">
+    <h1 id="title">This page was blocked</h1>
+    <p id="reason" class="lead">This website isn't on your list of allowed websites.</p>
+    <p id="warning" class="warning" hidden>
+      If someone on the phone or in a pop-up told you to go to this page, it is a scam.
+      Hang up and do not call any number shown on the screen.
+    </p>
+
+    <div id="helperBox" class="helper" hidden>
+      <span>Not sure? Call <strong id="helperName"></strong><span id="helperPhoneWrap"> at <a id="helperPhone"></a></span>.</span>
+    </div>
+
+    <div class="actions">
+      <button id="backBtn" class="btn primary" type="button">⬅ Go back</button>
+      <button id="requestBtn" class="btn" type="button">Ask to allow this site</button>
+    </div>
+    <p id="requestStatus" class="status" role="status"></p>
+
+    <details class="details">
+      <summary>Page address</summary>
+      <p id="blockedUrl" class="url"></p>
+    </details>
+  </main>
   <script src="blockpage.js"></script>
 </body>
 </html>

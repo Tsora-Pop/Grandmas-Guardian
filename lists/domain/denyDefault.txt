@@ -1,0 +1,57 @@
+# Grandma's Guardian — default always-block list
+# These sites are blocked even when they (or a parent domain) are on the
+# allowed list, and even when website allowlisting is turned off.
+# Each entry also blocks its subdomains (anydesk.com also blocks my.anydesk.com).
+# Formats accepted: example.com, hosts-file lines (0.0.0.0 example.com),
+# and adblock lines (||example.com^).
+
+# --- Remote-control tools (used in nearly every tech-support scam) ---
+anydesk.com
+teamviewer.com
+ultraviewer.net
+screenconnect.com
+connectwise.com
+logmein.com
+logmein123.com
+fastsupport.com
+gotoassist.com
+assist.zoho.com
+join.zoho.com
+rustdesk.com
+splashtop.com
+aeroadmin.com
+ammyy.com
+supremocontrol.com
+remotepc.com
+getscreen.me
+islonline.com
+airdroid.com
+remoteutilities.com
+dwservice.net
+rsupport.com
+showmypc.com
+litemanager.com
+anyviewer.com
+hoptodesk.com
+remotedesktop.google.com
+remoteassistance.support.services.microsoft.com
+
+# --- User-published pages under big, commonly allowed domains ---
+# Anyone can publish a page here, and phishing kits use them because the
+# parent domain (google.com, office.com, adobe.com) is usually trusted.
+sites.google.com
+script.google.com
+forms.office.com
+forms.microsoft.com
+express.adobe.com
+
+# --- Free tunnels and dynamic DNS often used to host scam pages ---
+ngrok.io
+ngrok-free.app
+ngrok.app
+trycloudflare.com
+duckdns.org
+
+# --- Optional: uncomment if the person never uses SharePoint/OneDrive links ---
+# Any company can host files on *.sharepoint.com, and shared-file phishing is common.
+# sharepoint.com

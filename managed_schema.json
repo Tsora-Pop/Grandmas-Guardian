@@ -1,0 +1,74 @@
+{
+  "type": "object",
+  "properties": {
+    "personName": {
+      "title": "Person using this computer",
+      "description": "Shown in logs, e.g. 'Grandma Jean' or 'Front desk PC'.",
+      "type": "string"
+    },
+    "helperName": {
+      "title": "Helper name",
+      "description": "Shown on blocked pages.",
+      "type": "string"
+    },
+    "helperPhone": {
+      "title": "Helper phone",
+      "description": "Shown on blocked pages.",
+      "type": "string"
+    },
+    "forceProtectionsOn": {
+      "title": "Keep all protections on",
+      "description": "Website allowlist, always-block list, file types and scam words cannot be switched off.",
+      "type": "boolean"
+    },
+    "forwardEnabled": {
+      "title": "Forward activity logs",
+      "type": "boolean"
+    },
+    "forwardUrl": {
+      "title": "Log collector URL",
+      "description": "HTTPS endpoint that receives events (Splunk HEC, Logstash/Fluent Bit HTTP input, Azure Logic App, n8n, etc.).",
+      "type": "string"
+    },
+    "forwardAuth": {
+      "title": "Authorization header",
+      "description": "Full header value, e.g. 'Splunk <token>' or 'Bearer <token>'.",
+      "type": "string"
+    },
+    "forwardFormat": {
+      "title": "Log format",
+      "description": "json (array), ndjson, or splunk (HEC event format).",
+      "type": "string",
+      "enum": [
+        "json",
+        "ndjson",
+        "splunk"
+      ]
+    },
+    "subscriptions": {
+      "title": "Extra online lists",
+      "description": "Lists added for every computer. They cannot be removed by the user.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "allow",
+              "deny",
+              "mime",
+              "scam"
+            ]
+          },
+          "url": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,10 @@
+# 3D printing and CAD (STL, 3MF, OBJ, STEP, DXF)
+model/stl
+application/sla
+model/3mf
+application/vnd.ms-package.3dmanufacturing-3dmodel+xml
+model/obj
+model/step
+application/step
+image/vnd.dxf
+application/dxf

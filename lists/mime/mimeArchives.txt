@@ -1,0 +1,10 @@
+# Compressed folders (.zip, .7z, .rar)
+# RISKY: scammers and malware often arrive inside zip files.
+# Only add if the person regularly downloads photo albums or similar.
+application/zip
+application/x-zip-compressed
+application/x-7z-compressed
+application/x-rar-compressed
+application/vnd.rar
+application/gzip
+application/x-tar

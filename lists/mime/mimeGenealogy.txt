@@ -1,0 +1,3 @@
+# Family history (GEDCOM)
+text/vnd.familysearch.gedcom
+application/x-gedcom

@@ -1,0 +1,6 @@
+# E-books
+application/epub+zip
+application/x-mobipocket-ebook
+application/vnd.amazon.ebook
+application/x-fictionbook+xml
+image/vnd.djvu

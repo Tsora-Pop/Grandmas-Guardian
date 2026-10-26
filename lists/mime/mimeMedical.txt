@@ -1,0 +1,2 @@
+# Medical images from patient portals (DICOM)
+application/dicom

@@ -1,0 +1,6 @@
+# Plain text, CSV and rich text
+text/plain
+text/csv
+text/tab-separated-values
+application/rtf
+text/rtf

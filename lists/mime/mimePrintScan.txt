@@ -1,0 +1,4 @@
+# Printing and scanning (XPS, TIFF)
+application/vnd.ms-xpsdocument
+application/oxps
+image/tiff

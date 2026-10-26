@@ -1,104 +1,435 @@
-PaymentDeclined
-Final Notice
-Take Action
-Transaction Summary
-Transaction Number
-Verify Account
-Suspicious Activity
-Unusual Login
-Urgent Response Needed
-Limited Time Offer
-Account Locked
-Security Alert
-Confirm Identity
-Update Required
-Billing Issue
-Payment Failed
-Reset Password
-Click Here to Verify
-Your Account Has Been Suspended
-Immediate Attention Required
-Unauthorized Access
-Your Package Is Waiting
-Delivery Issue
-Customs Clearance Needed
-Invoice Attached
-Pending Transaction
-Refund Available
-Claim Your Reward
-Congratulations You’ve Won
-Exclusive Offer
-Act Now
-Limited Availability
-Your Subscription Is Expiring
-Renew Now
-Free Trial Ending
-Your Account Will Be Deleted
-Confirm Your Email
-Login Attempt Detected
-Your Wallet Is Compromised
-Crypto Investment Opportunity
-Guaranteed Returns
-Liquidity Mining
-Mining Certificate Required
-Insider Trading Tip
-Download This App
-Special Investment Platform
-High-Yield Investment
-Tax Payment Required
-Withdrawal Blocked
-Account Verification Needed
-Secure Your Funds
-Transfer Confirmation
-Wire Transfer Instructions
-Bank Statement Attached
-Proof of Funds
-KYC Verification
-AML Compliance
-Trading Partner Invitation
-Join Our VIP Program
-Exclusive Access
-Private Investment Club
-Your Friend Invited You
-Wrong Number Text
-Hi Stranger
-Long Time No See
-Remember Me?
-Let’s Catch Up
-I Miss You
-You Look Familiar
-Are You Free Tonight?
-Looking For Love
-I’m New In Town
-Let’s Build A Future Together
-I Want To Help You Succeed
-I Made Millions Trading Crypto
-You Can Trust Me
-I’ll Teach You Everything
-We’re Meant To Be
-I Deleted My Dating Profile For You
-Let’s Move To WhatsApp
-Let’s Chat On Telegram
-Video Chat Isn’t Working
-My Camera Is Broken
-I’m Traveling Abroad
-I’m On A Business Trip
-I’m An Oil Rig Engineer
-I’m A Soldier Overseas
-I’m A Crypto Analyst
-I’m A Financial Advisor
-I’m A Trader
-I’m A Wealth Manager
-I’m A Single Parent
-My Child Is Sick
-I Need Help With Hospital Bills
-I’m Lonely
-I’m Divorced
-I Just Want Someone Honest
-Let’s Build Trust
-Don’t Tell Anyone
-Keep This Between Us
-Time Is Running Out
-Don’t Miss This Chance
-Act Fast
-This Is Confidential
+# Grandma's Guardian — default scam phrase list
+# One phrase per line. Matching ignores capitals, curly vs straight quotes,
+# dash styles and line breaks. A phrase only matches as whole words.
+#
+# Selection rule: every phrase should be something a legitimate company,
+# bank, or government office does not normally write to a customer. Generic
+# marketing or account wording ("click here", "act now", "reset password",
+# "security alert", "limited time offer") is deliberately left out because it
+# appears on real banking, shopping and news pages and would hide them.
+#
+# Lines starting with # are comments.
+
+# --- Tech-support / pop-up scams ---
+your computer has been locked
+your computer is infected
+your computer has been infected
+your pc is infected
+your pc has been blocked
+your system has been compromised
+your device has been compromised
+your files will be deleted
+virus detected on your computer
+pornographic spyware
+do not restart your computer
+do not shut down your computer
+do not close this window
+do not close this page
+call microsoft support
+call apple support
+call windows support
+call windows technical support
+contact microsoft support immediately
+microsoft certified technician
+microsoft security alert
+windows defender alert
+windows defender security warning
+apple security alert
+your ip address has been flagged
+your browser has been locked
+call our helpline immediately
+tech support helpline
+access will be blocked for your safety
+your firewall has been disabled
+hackers are accessing your computer
+your identity is at risk call
+remote access to your computer
+allow remote access
+install anydesk
+download anydesk
+install teamviewer
+download teamviewer
+install ultraviewer
+install screenconnect
+let me connect to your computer
+give me the code on your screen
+read me the code on your screen
+read me the numbers on your screen
+
+# --- Refund / overpayment scams ---
+we accidentally refunded you
+we refunded you too much
+you were refunded too much
+refund was sent by mistake
+send back the difference
+return the extra money
+overpayment refund
+geek squad renewal
+geek squad subscription
+norton renewal has been processed
+mcafee renewal has been processed
+your auto-renewal has been processed
+if you did not authorize this charge call
+to cancel this subscription call
+to dispute this charge call
+your paypal account has been charged
+order has been placed call
+did not make this purchase call
+
+# --- Gift cards / payment methods scammers ask for ---
+pay with gift cards
+pay using gift cards
+buy gift cards
+purchase gift cards
+buy google play cards
+buy itunes cards
+buy apple gift cards
+buy steam cards
+buy target gift cards
+buy ebay gift cards
+scratch off the back of the card
+send me the numbers on the back
+send a photo of the card
+read me the card numbers
+pin on the back of the card
+pay with bitcoin
+pay in bitcoin
+send bitcoin
+deposit cash into a bitcoin atm
+deposit cash into the atm
+send the money by wire
+wire the money today
+send cash in the mail
+send cash by courier
+a courier will pick up the cash
+a courier will come to collect
+put the cash in a box
+wrap the cash in
+send money via zelle to
+send it through zelle
+cash app me
+venmo me the
+western union transfer immediately
+moneygram transfer immediately
+
+# --- Government and bank impersonation ---
+your social security number has been suspended
+your social security number has been compromised
+your ssn has been suspended
+your social security number was used
+social security benefits will be suspended
+your medicare card will be cancelled
+your medicare card will be canceled
+new medicare card fee
+irs will arrest you
+irs agents will arrest
+warrant for your arrest
+warrant has been issued for your arrest
+an arrest warrant has been issued
+you will be arrested
+avoid arrest
+police will come to your house
+federal agents will arrest
+pay the fine immediately
+missed jury duty
+failed to appear for jury duty
+your bank account will be frozen
+your account will be frozen
+move your money to a safe account
+move your money to a secure account
+transfer your funds to a safe account
+transfer your savings to protect it
+federal reserve safe account
+fraud department will never ask you to
+the bank is involved in the fraud
+don't trust the bank teller
+do not trust the bank teller
+don't tell the bank teller
+do not tell the bank teller
+tell the teller it is for
+lie to the bank
+the bank employees are involved
+government grant you qualify
+you have been selected for a government grant
+unclaimed government funds
+stimulus payment pending
+
+# --- Secrecy and pressure tactics ---
+don't tell anyone about this call
+do not tell anyone about this call
+don't tell your family
+do not tell your family
+don't tell your children
+do not tell your children
+keep this confidential from your family
+this is a gag order
+stay on the line with me
+do not hang up
+don't hang up
+you must act within 24 hours or
+your account will be closed within 24 hours
+you will lose your benefits
+failure to pay will result in arrest
+failure to respond will result in legal action
+legal action will be taken against you
+final warning before legal action
+
+# --- Grandparent / family emergency scams ---
+grandma it's me
+grandpa it's me
+grandma, it's me
+grandpa, it's me
+i'm in jail and need bail
+i am in jail and need bail
+i need bail money
+bail money right away
+i was in a car accident and need money
+please don't tell mom and dad
+please don't tell mom
+please don't tell dad
+i got a new phone number this is
+my phone broke this is my new number
+mum this is my new number
+mom this is my new number
+dad this is my new number
+hi mum it's me
+hi mom it's me
+hi dad it's me
+i'm stuck overseas and need money
+i lost my wallet and passport
+
+# --- Prize, lottery and inheritance scams ---
+you have won the lottery
+you've won the lottery
+you are the lucky winner
+you have been selected as a winner
+congratulations you have won
+congratulations you've won
+claim your prize
+pay the processing fee to receive
+pay taxes on your winnings
+pay a fee to release your prize
+publishers clearing house winner
+mega millions winner notification
+unclaimed inheritance
+inheritance from a distant relative
+next of kin to a deceased
+beneficiary of the funds
+consignment box
+diplomatic courier
+atm card delivery
+foreign transfer fee
+
+# --- Romance and friendship scams ---
+i'm an oil rig engineer
+i am an oil rig engineer
+i work on an oil rig
+i'm a soldier deployed
+i am a soldier deployed
+i'm a doctor with the united nations
+un peacekeeping doctor
+my camera is broken so we can't video chat
+my camera is broken
+can't video chat right now
+let's move to whatsapp
+let's continue on whatsapp
+add me on telegram
+let's chat on telegram
+i deleted my dating profile for you
+we are meant to be together
+i need money for a plane ticket to see you
+pay for my flight to see you
+customs is holding my package
+customs fee to release
+my account is frozen and i need help
+i need help paying the hospital bill
+send money for my medical bills
+
+# --- Investment and crypto scams ---
+guaranteed returns
+guaranteed profit
+guaranteed daily profit
+risk-free investment
+risk free investment
+double your money
+double your bitcoin
+double your crypto
+triple your investment
+earn $1000 a day
+earn thousands per day
+insider trading tip
+liquidity mining
+mining certificate required
+pay a withdrawal fee
+withdrawal fee required
+pay tax before you can withdraw
+your withdrawal is blocked
+account upgrade required to withdraw
+crypto recovery service
+recover your lost crypto
+we can recover your lost funds
+funds recovery service
+asset recovery fee
+private investment club
+vip trading group
+trading signals group
+elon musk giveaway
+crypto giveaway
+
+# --- Delivery, toll and text message scams ---
+your package could not be delivered due to
+package is on hold due to incomplete address
+redelivery fee
+pay the redelivery fee
+update your delivery address within 24 hours
+unpaid toll balance
+outstanding toll charges
+pay your unpaid toll
+avoid late fees pay your toll
+your parcel is being held
+
+# --- Job and money-mule scams ---
+work from home and earn
+receive packages and reship them
+reshipping job
+package reshipper
+deposit the check and send back
+deposit this check and send
+mystery shopper assignment
+process payments for our company
+payment processing agent
+use your bank account to receive payments
+
+# --- Phishing wording that real companies don't use ---
+verify your identity to avoid suspension
+your account has been suspended click
+confirm your social security number
+confirm your card number
+enter your card pin
+provide your online banking password
+verify your banking password
+we need your one-time code
+read me the verification code
+tell me the code we just sent
+give me the code we sent you
+share the code you received
+
+# ===========================================================================
+# Variants and newer scripts
+# The filter itself also catches common disguises of every phrase above:
+#   - spaced or dotted letters:   g i f t  c a r d s,  G.I.F.T
+#   - joined or hyphenated words: giftcards, gift-cards
+#   - numbers/symbols for letters: g1ft c4rds, B1tc0in, $end
+#   - look-alike letters from other alphabets (Cyrillic "о", Greek "ο")
+#   - fancy Unicode letters (bold/fullwidth), accents, invisible characters
+#   - a phrase split across formatting tags or padded with hidden letters
+# So only genuinely different wording needs its own line below.
+# ===========================================================================
+
+# --- Gift card wording scammers rotate through ---
+pay with a gift card
+pay using a gift card
+pay with google play
+pay with itunes
+pay with apple gift card
+pay with steam
+pay with razer gold
+pay with vanilla visa
+pay with target cards
+buy the cards at
+go to the store and buy cards
+go to walgreens and buy
+go to cvs and buy
+go to walmart and buy
+scratch the back of the card
+take a picture of the back of the card
+send me the claim code
+send the claim code
+read me the claim code
+how many cards did you buy
+if the cashier asks
+don't tell the cashier
+do not tell the cashier
+tell the cashier it's a gift
+
+# --- Crypto ATM / QR code payment wording ---
+insert the cash into the machine
+scan the qr code at the machine
+use the qr code i sent you
+send it to this wallet address
+this is a government wallet
+federal crypto wallet
+
+# --- Bank "safe account" and withdrawal coaching ---
+if the bank asks why
+if the teller asks why
+say it's for home repairs
+say it is for home repairs
+say it's for a family emergency
+tell them it's for a renovation
+withdraw the money in cash and
+the teller may be involved
+your funds are not safe
+vault account for your protection
+we will give you a case number
+fdic safe account
+
+# --- Company and agency impersonation ---
+amazon security department
+amazon fraud department
+your amazon account has been compromised
+unauthorized purchase on your amazon account
+your apple id has been locked
+your apple id has been suspended
+your icloud account has been compromised
+your windows license has expired
+your windows license is expired
+your antivirus subscription has expired call
+call micro soft
+micro soft support
+federal trade commission officer
+social security administration officer
+us marshals warrant
+your social security number has been linked to
+your name is linked to drug trafficking
+your identity was used for money laundering
+you are under federal investigation
+
+# --- Sextortion e-mails ---
+i have recorded you
+i recorded you through your webcam
+i hacked your device
+i have access to all your contacts
+pay or i will send the video
+i will send the video to your contacts
+you have 48 hours to pay
+
+# --- Task / "job" scams ---
+task-based job
+complete tasks to earn
+recharge your account to continue
+deposit to unlock your commission
+your commission is frozen
+pay to unlock your earnings
+
+# --- Family emergency (including AI voice-clone follow-ups) ---
+mom it's me i'm in trouble
+dad it's me i'm in trouble
+please help me i'm in trouble
+my lawyer will call you
+the public defender will call you
+the attorney will call you about bail
+a courier will pick up the bail money
+
+# --- Toll, DMV and ticket texts ---
+toll violation notice
+final notice of unpaid toll
+dmv final notice
+outstanding traffic ticket
+your driving privileges will be suspended
+pay your traffic ticket immediately
+
+# --- Prize variants ---
+you won a car
+claim your sweepstakes
+pay the delivery fee for your prize
