@@ -1,7 +1,7 @@
 // popup.js — popup, full-tab settings page and first-install setup guide.
 import {
   DEFAULT_SETTINGS, DEFAULT_SUBSCRIPTIONS, KIND_LABELS, MANAGED_SETTING_KEYS, MANUAL_KEYS, MIME_PRESETS,
-  PROTECTION_KEYS, effectiveSettings, parseList
+  PROTECTION_KEYS, describeMime, effectiveSettings, parseList
 } from "./lib.js";
 
 const $ = id => document.getElementById(id);
@@ -66,7 +66,7 @@ function ago(ts) {
 const STATE_KEYS = [
   ...Object.keys(DEFAULT_SETTINGS), ...Object.values(MANUAL_KEYS),
   "subscriptions", "effectiveCounts", "blockedLog", "blockedDownloads",
-  "pendingRequests", "rulesStatus", "scamLog", "auditLog", "forwardStatus",
+  "pendingRequests", "pendingMimeRequests", "rulesStatus", "scamLog", "auditLog", "forwardStatus",
   "forwardQueue", "managedInfo"
 ];
 let state = {};
@@ -383,6 +383,31 @@ function renderRequests() {
       }
     }, "Allow"),
     h("button", { class: "btn small", type: "button", onclick: () => send("dismissRequest", { domain: r.domain }) }, "Dismiss"))));
+
+  // File-type requests (Downloads tab)
+  const mreqs = state.pendingMimeRequests || [];
+  $("mimeRequestsCard").hidden = !mreqs.length;
+  $("mimeRequestBadge").hidden = !mreqs.length;
+  $("mimeRequestBadge").textContent = String(mreqs.length);
+  $("mimeRequestList").replaceChildren(...mreqs.slice().reverse().map(r => {
+    const kind = describeMime(r.mime);
+    const risky = kind.level === "program";
+    const allowBtn = risky
+      // Programs need a second click, so they are never allowed by accident.
+      ? confirmButton("Allow", "Allow programs?", () => send("approveMimeRequest", { mime: r.mime }), "btn small danger")
+      : h("button", { class: "btn small primary", type: "button", onclick: () => send("approveMimeRequest", { mime: r.mime }) }, "Allow");
+    let host = "";
+    try { host = new URL(r.sourceUrl).hostname.replace(/^www\./, ""); } catch {}
+    return h("div", { class: "rowi" },
+      h("span", { class: "what" },
+        h("strong", {}, kind.name), " ", h("code", {}, r.mime),
+        risky ? h("span", { class: "tag deny", style: "margin-left:6px" }, "Program") : null,
+        h("span", { class: "excerpt" }, `${r.filename || "file"}${host ? ` from ${host}` : ""}`),
+        risky ? h("span", { class: "excerpt warn-text" }, "Programs can change the computer. Scammers ask people to download these.") : null),
+      h("span", { class: "when" }, ago(r.timestamp)),
+      allowBtn,
+      h("button", { class: "btn small", type: "button", onclick: () => send("dismissMimeRequest", { mime: r.mime }) }, "Dismiss"));
+  }));
 }
 
 function renderLogs() {
@@ -415,7 +440,8 @@ function renderLogs() {
 const AUDIT_LABELS = {
   protection_on: "Turned on", protection_off: "Turned off", protection_change_blocked: "Kept on (policy)",
   list_changed: "List", subscription_changed: "Online list", site_requested: "Request",
-  request_approved: "Allowed", request_dismissed: "Dismissed"
+  request_approved: "Allowed", request_dismissed: "Dismissed",
+  mime_requested: "File request", mime_request_approved: "File type allowed", mime_request_dismissed: "Dismissed"
 };
 function shortHost(u) {
   try { return new URL(u).hostname; } catch { return u || ""; }
@@ -427,6 +453,8 @@ function describeAudit(e) {
     case "subscription_changed": return `${KIND_LABELS[e.kind] || e.kind || ""} ${e.name || e.url || ""}: ${e.change}`.trim();
     case "site_requested": return e.domain;
     case "request_approved": case "request_dismissed": return `${e.domain} (by ${e.by})`;
+    case "mime_requested": return `${e.mime} (${e.filename || "file"})`;
+    case "mime_request_approved": case "mime_request_dismissed": return `${e.mime} (by ${e.by})`;
     default: return JSON.stringify(e);
   }
 }
@@ -688,3 +716,4 @@ renderAll();
 const wantsSetup = new URLSearchParams(location.search).has("setup");
 if (tabMode && (wantsSetup || !setting("setupComplete"))) showSetup(true);
 if ((state.pendingRequests || []).length) selectTab("sites");
+else if ((state.pendingMimeRequests || []).length) selectTab("downloads");

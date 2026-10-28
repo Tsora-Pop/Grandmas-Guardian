@@ -2,10 +2,11 @@
 import {
   BUILTIN_DENY, DEFAULT_SETTINGS, DEFAULT_SUBSCRIPTIONS, LOG_CAPS, MANUAL_KEYS,
   PROTECTION_KEYS, REFRESH_MINUTES, checkParsedList, chunk, effectiveSettings, hostMatches,
-  looksLikeHtml, normalizeDomain, normalizeFor, normalizeMime, parseList, randomToken
+  describeMime, looksLikeHtml, normalizeDomain, normalizeFor, normalizeMime, parseList, randomToken
 } from "./lib.js";
 
 const BLOCKPAGE = chrome.runtime.getURL("blockpage.html");
+const DOWNLOAD_PAGE = chrome.runtime.getURL("downloadblocked.html");
 const UI_PAGE = chrome.runtime.getURL("popup.html");
 const ICON = chrome.runtime.getURL("Guardian128.png");
 const VERSION = chrome.runtime.getManifest().version;
@@ -295,7 +296,8 @@ chrome.storage.onChanged.addListener((changes, area) => {
 // ---------------------------------------------------------------------------
 const AUDIT_TYPES = new Set([
   "protection_on", "protection_off", "protection_change_blocked", "list_changed",
-  "subscription_changed", "request_approved", "request_dismissed", "site_requested"
+  "subscription_changed", "request_approved", "request_dismissed", "site_requested",
+  "mime_requested", "mime_request_approved", "mime_request_dismissed"
 ]);
 
 async function recordEvent(evt) {
@@ -322,6 +324,20 @@ async function approveRequest(domain, by) {
 async function dismissRequest(domain, by) {
   await updateKey("pendingRequests", list => list.filter(r => r.domain !== domain));
   await recordEvent({ type: "request_dismissed", domain, by });
+  return { ok: true };
+}
+
+// ---------- requests to allow a file type ----------
+async function approveMimeRequest(mime, by) {
+  const res = await addManual("mime", [mime], by);
+  await updateKey("pendingMimeRequests", list => list.filter(r => r.mime !== mime));
+  await recordEvent({ type: "mime_request_approved", mime, by, ok: !!res.added });
+  return res;
+}
+
+async function dismissMimeRequest(mime, by) {
+  await updateKey("pendingMimeRequests", list => list.filter(r => r.mime !== mime));
+  await recordEvent({ type: "mime_request_dismissed", mime, by });
   return { ok: true };
 }
 
@@ -587,8 +603,9 @@ chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
 });
 
 async function handleDownload(item, suggest) {
-  // The extension's own log exports are always allowed.
-  if (item.byExtensionId === chrome.runtime.id) {
+  // The extension's own log exports (data: files it builds itself) are always allowed.
+  // A "Download again" started from the download-stopped page is checked like any other.
+  if (item.byExtensionId === chrome.runtime.id && /^data:/i.test(item.url || "")) {
     suggest();
     return;
   }
@@ -608,23 +625,70 @@ async function handleDownload(item, suggest) {
     || decodeURIComponent((item.finalUrl || item.url || "").split(/[?#]/)[0].split("/").pop() || "")
     || "file";
 
-  chrome.notifications.create(`gg-download-${item.id}`, {
-    type: "basic",
-    iconUrl: ICON,
-    title: "Download stopped",
-    message: `"${name}" was stopped because this kind of file (${mime || "unknown type"}) is not allowed.` +
-      (s.helperName ? ` If you need it, ask ${s.helperName}.` : ""),
-    priority: 1
-  });
-
   const entry = {
+    id: randomToken(8),
     filename: name,
     mimeType: mime || "unknown",
     timestamp: new Date().toISOString(),
-    sourceUrl: item.finalUrl || item.url || "unknown"
+    sourceUrl: item.finalUrl || item.url || "unknown",
+    // Original address, used by "Download again" (finalUrl can be a short-lived redirect).
+    url: item.url || item.finalUrl || "",
+    // The page the download was started from, for "Go back".
+    referrer: item.referrer || ""
   };
   await appendCapped("blockedDownloads", entry, LOG_CAPS.blockedDownloads);
+
+  // Show the person what happened and how to ask for it, in a tab they can't miss.
+  await openDownloadPage(entry.id);
+
+  // Some browsers (notably on Android) have no notification support: never let that
+  // stop the rest of the handling.
+  try {
+    if (chrome.notifications?.create) {
+      chrome.notifications.create(`gg-download-${entry.id}`, {
+        type: "basic",
+        iconUrl: ICON,
+        title: "Download stopped",
+        message: `"${name}" was stopped because this kind of file is not allowed. Click for details.`,
+        priority: 1
+      }, () => void chrome.runtime.lastError);
+    }
+  } catch {}
+
   await recordEvent({ type: "download_blocked", filename: entry.filename, mimeType: entry.mimeType, sourceUrl: entry.sourceUrl });
+}
+
+// One "Download stopped" tab is reused, so a site that starts many downloads
+// can't flood the browser with tabs.
+async function openDownloadPage(id) {
+  const url = `${DOWNLOAD_PAGE}?id=${encodeURIComponent(id)}`;
+  let tabId = null;
+  try {
+    ({ ggDownloadTab: tabId = null } = (await chrome.storage.session?.get("ggDownloadTab")) || {});
+  } catch {}
+  if (tabId != null) {
+    try {
+      const tab = await chrome.tabs.update(tabId, { url, active: true });
+      if (tab?.windowId != null) chrome.windows?.update(tab.windowId, { focused: true }).catch(() => {});
+      return;
+    } catch {
+      // the tab was closed
+    }
+  }
+  try {
+    const tab = await chrome.tabs.create({ url, active: true });
+    await chrome.storage.session?.set({ ggDownloadTab: tab.id });
+  } catch (e) {
+    console.error("Grandma's Guardian: could not open the download page", e);
+  }
+}
+
+if (chrome.notifications?.onClicked) {
+  chrome.notifications.onClicked.addListener(nid => {
+    if (!nid.startsWith("gg-download-")) return;
+    openDownloadPage(nid.slice("gg-download-".length));
+    chrome.notifications.clear(nid);
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -667,6 +731,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   const ctx = {
     // Only a top-level block page counts, so other sites can't iframe it to spam the log.
     blockPage: url.startsWith(BLOCKPAGE) && sender.frameId === 0,
+    downloadPage: url.startsWith(DOWNLOAD_PAGE) && sender.frameId === 0,
     ui: url.startsWith(UI_PAGE),
     // Our content script running in a web page.
     content: !!sender.tab && /^https?:/i.test(url || sender.tab.url || "") && !url.startsWith("chrome-extension:"),
@@ -738,6 +803,57 @@ async function handleMessage(msg, ctx) {
     });
     if (logged) await recordEvent({ type: "site_blocked", url, reason });
     return { ok: true };
+  }
+
+  // --- from the download-stopped page ---
+  if (msg.type === "requestMime" && ctx.downloadPage) {
+    const { blockedDownloads = [] } = await chrome.storage.local.get("blockedDownloads");
+    const d = blockedDownloads.find(e => e.id === msg.id);
+    if (!d) return { ok: false, error: "That download is no longer in the list." };
+    const mime = normalizeMime(d.mimeType);
+    if (!mime || describeMime(mime).level === "unknown") {
+      return { ok: false, error: "This file doesn't say what kind of file it is, so it can't be allowed by type." };
+    }
+    const req = { mime, filename: d.filename, sourceUrl: d.sourceUrl, downloadId: d.id, timestamp: new Date().toISOString() };
+    let isNew = false;
+    await appendCapped("pendingMimeRequests", req, LOG_CAPS.pendingMimeRequests, list => {
+      const dup = list.some(r => r.mime === mime);
+      isNew = !dup;
+      return dup;
+    });
+    if (isNew) await recordEvent({ type: "mime_requested", mime, filename: d.filename, sourceUrl: d.sourceUrl });
+    return { ok: true, mime, alreadyRequested: !isNew };
+  }
+
+  if (msg.type === "checkMime" && ctx.downloadPage) {
+    const mime = normalizeMime(msg.mime || "");
+    if (!mime) return { ok: false };
+    const s = await getSettings();
+    const { effectiveMimeTypes = [], pendingMimeRequests = [] } =
+      await chrome.storage.local.get(["effectiveMimeTypes", "pendingMimeRequests"]);
+    return {
+      ok: true,
+      allowed: !s.mimeFilteringEnabled || effectiveMimeTypes.includes(mime),
+      pending: pendingMimeRequests.some(r => r.mime === mime)
+    };
+  }
+
+  if (msg.type === "retryDownload" && ctx.downloadPage) {
+    const { blockedDownloads = [] } = await chrome.storage.local.get("blockedDownloads");
+    const d = blockedDownloads.find(e => e.id === msg.id);
+    let url = null;
+    try {
+      const u = new URL(d?.url || "");
+      if (u.protocol === "http:" || u.protocol === "https:") url = u.href;
+    } catch {}
+    if (!url) return { ok: false, error: "This file can't be downloaded again from here. Go back to the page and click the download again." };
+    try {
+      // Goes through the normal file-type check (see handleDownload).
+      await chrome.downloads.download({ url, filename: d.filename || undefined });
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: "The download couldn't be started. Go back to the page and click the download again." };
+    }
   }
 
   if (msg.type === "checkSite" && ctx.blockPage) {
@@ -853,6 +969,12 @@ async function handleMessage(msg, ctx) {
 
     case "dismissRequest":
       return dismissRequest(msg.domain, "settings page");
+
+    case "approveMimeRequest":
+      return approveMimeRequest(msg.mime, "settings page");
+
+    case "dismissMimeRequest":
+      return dismissMimeRequest(msg.mime, "settings page");
 
     case "clearLog":
       if (!["blockedLog", "blockedDownloads", "scamLog", "auditLog"].includes(msg.key)) return { ok: false };

@@ -148,3 +148,18 @@ body.blockpage {
   background: var(--ok-soft); color: var(--ok); border-radius: var(--radius);
   padding: 12px 14px; font-weight: 600;
 }
+
+/* ---------- download-stopped page ---------- */
+.block-card .file-box {
+  margin: 14px 0 4px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius);
+  background: var(--bg); text-align: left; display: grid; gap: 8px;
+}
+.block-card .file-row { display: grid; grid-template-columns: 9.5em 1fr; gap: 10px; align-items: baseline; }
+.block-card .file-label {
+  font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--muted);
+}
+.block-card .file-value { overflow-wrap: anywhere; font-size: 16px; }
+.block-card code.mime { font-family: ui-monospace, Consolas, monospace; font-size: 14px; }
+@media (max-width: 480px) {
+  .block-card .file-row { grid-template-columns: 1fr; gap: 2px; }
+}

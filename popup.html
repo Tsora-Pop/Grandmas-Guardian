@@ -95,7 +95,7 @@
 
     <nav class="tabs" role="tablist" aria-label="Sections">
       <button class="tab" role="tab" data-tab="sites" aria-selected="true">Websites<span id="requestBadge" class="badge" hidden></span></button>
-      <button class="tab" role="tab" data-tab="downloads">Downloads</button>
+      <button class="tab" role="tab" data-tab="downloads">Downloads<span id="mimeRequestBadge" class="badge" hidden></span></button>
       <button class="tab" role="tab" data-tab="scam">Scam words</button>
       <button class="tab" role="tab" data-tab="activity">Activity</button>
       <button class="tab" role="tab" data-tab="settings">Settings</button>
@@ -133,6 +133,12 @@
       </section>
 
       <section class="panel" data-panel="downloads" role="tabpanel" hidden>
+        <div id="mimeRequestsCard" class="card" hidden>
+          <h2>Requests to allow a file type</h2>
+          <p class="muted small">Allowing a file type lets <em>every</em> file of that kind download from any allowed website.</p>
+          <div id="mimeRequestList" class="rows"></div>
+        </div>
+
         <div class="card">
           <div class="card-head">
             <div>

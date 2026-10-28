@@ -118,7 +118,7 @@ export const MANAGED_SETTING_KEYS = [
 export const REFRESH_MINUTES = 24 * 60;
 export const LOG_CAPS = {
   blockedLog: 500, blockedDownloads: 200, pendingRequests: 50,
-  scamLog: 500, auditLog: 300, forwardQueue: 2000
+  scamLog: 500, auditLog: 300, forwardQueue: 2000, pendingMimeRequests: 50
 };
 
 // ---------- normalisers ----------
@@ -272,4 +272,118 @@ export function chunk(arr, size) {
   const out = [];
   for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// File types: plain-language names and risk levels (download-stopped page, popup)
+// ---------------------------------------------------------------------------
+const MIME_NAMES = {
+  "application/pdf": "PDF document",
+  "application/msword": "Word document (old .doc)",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "Word document (.docx)",
+  "application/vnd.ms-excel": "Excel spreadsheet (old .xls)",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "Excel spreadsheet (.xlsx)",
+  "application/vnd.ms-powerpoint": "PowerPoint presentation (old .ppt)",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation": "PowerPoint presentation (.pptx)",
+  "application/rtf": "Rich text document (.rtf)",
+  "text/plain": "Plain text file (.txt)",
+  "text/csv": "Spreadsheet data (.csv)",
+  "text/calendar": "Calendar invite (.ics)",
+  "text/vcard": "Contact card (.vcf)",
+  "application/epub+zip": "E-book (.epub)",
+  "image/jpeg": "Photo (.jpg)",
+  "image/png": "Picture (.png)",
+  "image/gif": "Animated picture (.gif)",
+  "image/webp": "Picture (.webp)",
+  "image/heic": "iPhone photo (.heic)",
+  "image/heif": "iPhone photo (.heif)",
+  "image/svg+xml": "Drawing (.svg)",
+  "audio/mpeg": "Music or audio (.mp3)",
+  "audio/mp4": "Music or audio (.m4a)",
+  "audio/wav": "Sound recording (.wav)",
+  "video/mp4": "Video (.mp4)",
+  "video/quicktime": "Video (.mov)",
+  "application/zip": "Compressed folder (.zip)",
+  "application/x-zip-compressed": "Compressed folder (.zip)",
+  "application/x-7z-compressed": "Compressed folder (.7z)",
+  "application/x-rar-compressed": "Compressed folder (.rar)",
+  "application/vnd.rar": "Compressed folder (.rar)",
+  "application/x-msdownload": "Windows program (.exe)",
+  "application/x-msdos-program": "Windows program (.exe)",
+  "application/vnd.microsoft.portable-executable": "Windows program (.exe)",
+  "application/x-msi": "Windows installer (.msi)",
+  "application/x-ms-installer": "Windows installer (.msi)",
+  "application/x-apple-diskimage": "Mac installer (.dmg)",
+  "application/vnd.apple.installer+xml": "Mac installer (.pkg)",
+  "application/vnd.android.package-archive": "Android app (.apk)",
+  "application/x-sh": "Script (.sh)",
+  "application/x-shellscript": "Script (.sh)",
+  "application/x-bat": "Windows script (.bat)",
+  "application/x-powershell": "PowerShell script (.ps1)",
+  "application/hta": "HTML application (.hta)",
+  "application/x-java-archive": "Java program (.jar)",
+  "application/java-archive": "Java program (.jar)",
+  "application/x-ms-shortcut": "Windows shortcut (.lnk)",
+  "application/vnd.oasis.opendocument.text": "LibreOffice document (.odt)",
+  "application/vnd.oasis.opendocument.spreadsheet": "LibreOffice spreadsheet (.ods)",
+  "application/vnd.oasis.opendocument.presentation": "LibreOffice presentation (.odp)",
+  "application/vnd.oasis.opendocument.graphics": "LibreOffice drawing (.odg)",
+  "application/vnd.apple.pages": "Apple Pages document",
+  "application/vnd.apple.numbers": "Apple Numbers spreadsheet",
+  "application/vnd.apple.keynote": "Apple Keynote presentation",
+  "message/rfc822": "Saved e-mail (.eml)",
+  "application/vnd.ms-outlook": "Saved Outlook e-mail (.msg)",
+  "application/vnd.ms-xpsdocument": "Printable document (.xps)",
+  "application/oxps": "Printable document (.oxps)",
+  "image/tiff": "Scanned picture (.tiff)",
+  "image/bmp": "Picture (.bmp)",
+  "image/avif": "Picture (.avif)",
+  "audio/aac": "Audio (.aac)",
+  "audio/ogg": "Audio (.ogg)",
+  "audio/flac": "Music (.flac)",
+  "video/webm": "Video (.webm)",
+  "video/x-msvideo": "Video (.avi)",
+  "video/x-matroska": "Video (.mkv)",
+  "application/x-ofx": "Bank download (.ofx)",
+  "application/vnd.intu.qfx": "Quicken bank download (.qfx)",
+  "application/vnd.intu.qbo": "QuickBooks bank download (.qbo)",
+  "application/qif": "Bank download (.qif)",
+  "application/x-gedcom": "Family tree file (.ged)",
+  "application/dicom": "Medical image (.dcm)",
+  "model/stl": "3D model (.stl)",
+  "model/3mf": "3D print file (.3mf)",
+  "font/ttf": "Font (.ttf)",
+  "font/otf": "Font (.otf)",
+  "application/json": "Data file (.json)",
+  "application/xml": "Data file (.xml)",
+  "application/octet-stream": "Unknown kind of file"
+};
+
+// Types that can run code on the computer. Scammers ask victims to download these.
+const RISKY_MIME = new Set([
+  "application/x-msdownload", "application/x-msdos-program", "application/vnd.microsoft.portable-executable",
+  "application/x-msi", "application/x-ms-installer", "application/x-apple-diskimage",
+  "application/vnd.apple.installer+xml", "application/vnd.android.package-archive", "application/x-sh",
+  "application/x-shellscript", "application/x-bat", "application/x-powershell", "application/hta",
+  "application/x-java-archive", "application/java-archive", "application/x-ms-shortcut",
+  "application/x-executable", "application/x-elf", "application/x-mach-binary"
+]);
+
+/**
+ * Describe a MIME type for people.
+ * level: "unknown" (no type / octet-stream: allowing it would let almost anything
+ * through), "program" (can run code), or "ordinary".
+ */
+export function describeMime(mime) {
+  const m = (mime || "").toLowerCase();
+  if (!m || m === "unknown" || m === "application/octet-stream") {
+    return { name: "Unknown kind of file", level: "unknown" };
+  }
+  if (RISKY_MIME.has(m) || /macroenabled/i.test(m)) {
+    return { name: MIME_NAMES[m] || (/macroenabled/i.test(m) ? "Office file with macros" : "Program"), level: "program" };
+  }
+  if (MIME_NAMES[m]) return { name: MIME_NAMES[m], level: "ordinary" };
+  const [top] = m.split("/");
+  const generic = { image: "Picture", audio: "Audio file", video: "Video", text: "Text file", font: "Font" }[top];
+  return { name: generic || "File", level: "ordinary" };
 }

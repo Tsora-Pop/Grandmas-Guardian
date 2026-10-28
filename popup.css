@@ -153,3 +153,10 @@ details.subs summary { cursor: pointer; font-size: 13px; font-weight: 600; color
 .restore-row { margin: 6px 0 2px; }
 .rowi .excerpt { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
 select optgroup { font-weight: 700; }
+
+.warn-text { color: var(--warn); }
+/* file-type requests: text on its own line, then time + buttons */
+#mimeRequestList .rowi { flex-wrap: wrap; align-items: center; }
+#mimeRequestList .rowi .what { flex: 1 1 100%; }
+#mimeRequestList .rowi .when { margin-right: auto; }
+#mimeRequestList code { word-break: break-all; }

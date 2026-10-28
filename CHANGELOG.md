@@ -1,5 +1,69 @@
 # Changelog
 
+## 2.3.0
+
+### A "Download stopped" page, and requests to allow a file type
+
+Before, a stopped download only showed a small notification. The person had no way to ask for that kind of file, and the technical file type was only visible to the helper. Version 2.3 handles downloads the same way the block page handles websites.
+
+**What the person sees.** When a download is stopped, a **Download stopped** page opens in a tab and shows:
+- **File:** the file name.
+- **Kind of file:** in plain words, for example "LibreOffice document (.odt)" or "Windows program (.exe)".
+- **File type to allow:** the exact MIME type, for example `application/vnd.oasis.opendocument.text`, so the helper knows precisely what is being asked for.
+- **From:** the website it came from.
+- The helper's name and phone number.
+- **Ask [helper] to allow this kind of file**, and **Go back**, which returns to the page the download came from.
+
+After the person asks, the page says to leave it open. Once the helper approves, it switches to **This kind of file is now allowed**, with a **Download again** button. That button re-downloads the original address, and the download goes through the normal file-type check, so it only succeeds if the type really is allowed. If the original address can't be fetched again (files a page generates itself), the page says to go back and click the download again. Opening the page later shows *Waiting for [helper] to approve* if a request is already pending.
+
+**Special cases on the page:**
+- **Programs** (`.exe`, `.msi`, `.dmg`, `.apk`, scripts, Java, shortcuts, Office files with macros) show a red warning: if someone on the phone, in an e-mail or in a pop-up said to download it, it is a scam. They can still be requested; the helper decides.
+- **No usable type.** If the website sent no type, or `application/octet-stream` ("unknown kind of file"), there is no request button. Allowing it would let almost anything through, programs included, so the page tells the person to ask the helper to download the file for them.
+
+**Only one tab.** All stopped downloads reuse a single "Download stopped" tab, so a site that starts many downloads can't flood the browser. If that tab was closed, a new one opens.
+
+**Notifications.** The notification still appears, and clicking it reopens the page. Some browsers (several Android browsers among them) don't support extension notifications; the page works without them, and the notification call can no longer break the rest of the handling.
+
+**What the helper sees.** The popup's **Downloads** tab has a new **Requests to allow a file type** card, the same as website requests under **Websites**:
+- a red badge on the Downloads tab shows how many are waiting, and the popup opens on that tab when there are file requests and no website requests;
+- each request shows the kind of file, the exact type, the file name and the site it came from, with **Allow** and **Dismiss**;
+- **programs** are labeled **PROGRAM**, show a warning line, and need a second click ("Allow programs?") so they are never allowed by accident;
+- the card reminds the helper that allowing a type lets *every* file of that kind download from any allowed website.
+
+Approving adds the type to the "added here" file types, exactly as if it had been typed in. Requests, approvals and dismissals are recorded in **Activity → Changes**, exported in CSV/JSON, and forwarded to a log collector if that is on. Up to 50 requests are kept, one per file type.
+
+The **Scam words** section has no request feature, as requested.
+
+### Security notes
+
+- **The page can't be opened by websites.** The new page is not web-accessible, unlike the website block page, so websites can't open or frame it. Its messages (`requestMime`, `checkMime`, `retryDownload`) are only accepted from a top-level copy of it, and approving is only possible from the popup or settings page.
+- **Re-downloads are checked like any other.** Previously every download started by the extension skipped the file-type check, which was meant for log exports. Now only the extension's own `data:` exports skip it, so **Download again** can never bypass the filter.
+- **Only `http(s)` addresses are re-downloaded.**
+
+### Other
+
+- **Friendly names** for about 80 common file types (`describeMime` in `lib.js`), used on the page and in the popup.
+
+### Publishing notes
+
+- **Permissions:** no new ones. The page uses tabs the extension opens itself, and `chrome.storage.session` to remember which tab to reuse. Existing users are not prompted.
+- **GitHub Pages:** no changes.
+- **Store package:** must now include `downloadblocked.html` and `downloadblocked.js` (the zip command in `STORE-SUBMISSION.md` is updated).
+- **Store review:** code change, so leave "skip review" unchecked.
+
+### Files
+
+| File | Change |
+|---|---|
+| `downloadblocked.html`, `downloadblocked.js` | **New:** the Download stopped page |
+| `background.js` | Opens/reuses the page; file-type request queue; `requestMime`, `checkMime`, `retryDownload`, `approveMimeRequest`, `dismissMimeRequest`; notification click; safe without notification support; export bypass limited to `data:` |
+| `popup.html`, `popup.js`, `popup.css` | Requests card and badge on the Downloads tab; Changes log entries |
+| `lib.js` | `describeMime` (friendly names and risk level); request cap |
+| `ui.css` | File details box |
+| `manifest.json` | 2.3.0 |
+| `README.md` | Synced with your published copy |
+| `tests/background.test.mjs` | 23 new checks (104 total) |
+
 ## 2.2.0
 
 ### Clickable page address on the block page

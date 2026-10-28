@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Download stopped</title>
+  <link rel="stylesheet" href="ui.css">
+</head>
+<body class="blockpage">
+  <main class="block-card" aria-labelledby="title">
+    <img src="Guardian128.png" alt="" width="72" height="72">
+    <h1 id="title">This download was stopped</h1>
+    <p id="reason" class="lead">This kind of file isn't on your list of allowed downloads.</p>
+    <p id="warning" class="warning" hidden></p>
+
+    <div class="file-box">
+      <div class="file-row"><span class="file-label">File</span><span id="fileName" class="file-value"></span></div>
+      <div class="file-row"><span class="file-label">Kind of file</span><span id="fileKind" class="file-value"></span></div>
+      <div class="file-row"><span class="file-label">File type to allow</span><code id="fileMime" class="file-value mime"></code></div>
+      <div class="file-row"><span class="file-label">From</span><span id="fileFrom" class="file-value url"></span></div>
+    </div>
+
+    <div id="helperBox" class="helper" hidden>
+      <span>Not sure? Call <strong id="helperName"></strong><span id="helperPhoneWrap"> at <a id="helperPhone"></a></span>.</span>
+    </div>
+
+    <div class="actions">
+      <button id="retryBtn" class="btn primary" type="button" hidden>⬇ Download again</button>
+      <button id="requestBtn" class="btn" type="button">Ask to allow this kind of file</button>
+      <button id="backBtn" class="btn" type="button">⬅ Go back</button>
+    </div>
+    <p id="requestStatus" class="status" role="status"></p>
+  </main>
+  <script src="downloadblocked.js"></script>
+</body>
+</html>
