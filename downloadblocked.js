@@ -18,10 +18,37 @@
     return;
   }
 
-  const kind = lib.describeMime(d.mimeType);
+  // What to ask for: the real type the site sent, or (when the site sent a generic
+  // type such as application/octet-stream) the real types for the file's extension.
+  const plan = lib.mimeRequestFor(d.mimeType, d.filename);
+  const kind = lib.describeRequest(plan.mimes, plan.ext);
+  const extLabel = plan.ext ? `.${plan.ext}` : "";
   $("fileName").textContent = d.filename || "(no name)";
-  $("fileKind").textContent = kind.name;
-  $("fileMime").textContent = d.mimeType && d.mimeType !== "unknown" ? d.mimeType : "(not given by the website)";
+  $("fileKind").textContent = plan.basis === "unknown" ? "Unknown kind of file" : kind.name;
+  $("fileSent").textContent = d.mimeType && d.mimeType !== "unknown" ? d.mimeType : "(no type given)";
+
+  function showTypes(types) {
+    $("typesLabel").textContent = types.length > 1 ? "File types to allow" : "File type to allow";
+    $("fileMime").replaceChildren(...types.map(t => {
+      const c = document.createElement("code");
+      c.className = "mime";
+      c.textContent = t;
+      return c;
+    }));
+  }
+  showTypes(plan.mimes);
+
+  if (plan.basis === "extension") {
+    $("basisNote").hidden = false;
+    $("basisNote").textContent =
+      `The website didn't say what kind of file this is, so it was checked by its name (${extLabel}). ` +
+      `Allowing ${extLabel} files allows the file type${plan.mimes.length > 1 ? "s" : ""} below.`;
+  } else if (plan.basis === "unknown") {
+    $("basisNote").hidden = false;
+    $("basisNote").textContent = plan.ext
+      ? `The website didn't say what kind of file this is, and its name (${extLabel}) doesn't tell us either.`
+      : "The website didn't say what kind of file this is, and its name has no file extension.";
+  }
   let fromHost = "";
   try { fromHost = new URL(d.sourceUrl).hostname.replace(/^www\./, ""); } catch {}
   $("fileFrom").textContent = fromHost || d.sourceUrl || "(unknown)";
@@ -36,20 +63,28 @@
     } else {
       $("helperPhoneWrap").hidden = true;
     }
-    $("requestBtn").textContent = `Ask ${helperName || "my helper"} to allow this kind of file`;
   }
   const who = helperName || "your helper";
+  const Who = who[0].toUpperCase() + who.slice(1);
+  const asker = helperName || "my helper";
+  $("requestBtn").textContent = plan.basis === "unknown"
+    ? `Ask ${asker} to allow unknown files`
+    : plan.basis === "extension"
+      ? `Ask ${asker} to allow ${extLabel} files`
+      : `Ask ${asker} to allow this kind of file`;
 
   if (kind.level === "program") {
     $("warning").hidden = false;
     $("warning").textContent =
       "This file is a program that can change your computer. If someone on the phone, in an e-mail or in a " +
       "pop-up told you to download it, it is a scam: hang up and do not install anything.";
-  } else if (kind.level === "unknown") {
-    // No usable type: allowing "unknown files" would let almost anything through, programs included.
-    $("reason").textContent = "The website didn't say what kind of file this is, so it can't be allowed by file type.";
-    $("requestBtn").hidden = true;
-    $("requestStatus").textContent = `If you need this file, ask ${who} to download it for you.`;
+  } else if (plan.basis === "unknown") {
+    // Last resort: the only type left to ask for is octet-stream ("unknown files"),
+    // which lets almost anything through. Say so plainly; the helper is warned too.
+    $("warning").hidden = false;
+    $("warning").textContent =
+      "The only way to allow this file is to allow ALL unknown files, which also lets programs through. " +
+      `${Who} will be warned about this. If you're not sure you need this file, don't ask.`;
   }
 
   // Go back: the page the download came from, or the previous page, or close the tab.
@@ -68,10 +103,12 @@
   $("requestBtn").addEventListener("click", async () => {
     $("requestBtn").disabled = true;
     const res = await chrome.runtime.sendMessage({ type: "requestMime", id });
+    if (res?.ok && res.nowAllowed) { check(); return; }
+    if (res?.ok && res.mimes?.length) showTypes(res.mimes);
     $("requestStatus").textContent = res?.ok
       ? (res.alreadyRequested
-        ? `This kind of file has already been requested. ${who[0].toUpperCase() + who.slice(1)} can approve it in Grandma's Guardian.`
-        : `Request saved. ${who[0].toUpperCase() + who.slice(1)} can approve it in Grandma's Guardian. ` +
+        ? `This has already been requested. ${Who} can approve it in Grandma's Guardian.`
+        : `Request saved. ${Who} can approve it in Grandma's Guardian. ` +
           "Leave this page open: it will tell you when you can download the file.")
       : (res?.error || "Sorry, that request couldn't be saved.");
     if (!res?.ok) $("requestBtn").disabled = false;
@@ -92,7 +129,10 @@
     $("title").textContent = "This kind of file is now allowed";
     const note = $("reason");
     note.className = "allowed-note";
-    note.textContent = `${kind.name} files can now be downloaded.`;
+    note.textContent = plan.basis === "extension"
+      ? `${extLabel} files can now be downloaded.`
+      : plan.basis === "unknown" ? "Unknown files can now be downloaded." : `${kind.name} files can now be downloaded.`;
+    $("basisNote").hidden = true;
     $("warning").hidden = true;
     $("requestBtn").hidden = true;
     $("helperBox").hidden = true;
@@ -116,14 +156,16 @@
   });
 
   async function check() {
-    if (shownAllowed || kind.level === "unknown") return;
+    if (shownAllowed) return;
     try {
-      const res = await chrome.runtime.sendMessage({ type: "checkMime", mime: d.mimeType });
+      const res = await chrome.runtime.sendMessage({ type: "checkMime", id });
       if (!res?.ok) return;
-      if (res.allowed) showAllowed();
-      else if (res.pending && !$("requestStatus").textContent) {
+      if (res.allowed) { showAllowed(); return; }
+      // Only list what still needs allowing (some types for this extension may be allowed already).
+      if (res.mimes?.length) showTypes(res.mimes);
+      if (res.pending && !$("requestStatus").textContent) {
         $("requestBtn").disabled = true;
-        $("requestStatus").textContent = `Waiting for ${who} to approve this kind of file.`;
+        $("requestStatus").textContent = `Waiting for ${who} to approve this.`;
       }
     } catch {}
   }

@@ -12,11 +12,13 @@
     <h1 id="title">This download was stopped</h1>
     <p id="reason" class="lead">This kind of file isn't on your list of allowed downloads.</p>
     <p id="warning" class="warning" hidden></p>
+    <p id="basisNote" class="basis-note" hidden></p>
 
     <div class="file-box">
       <div class="file-row"><span class="file-label">File</span><span id="fileName" class="file-value"></span></div>
       <div class="file-row"><span class="file-label">Kind of file</span><span id="fileKind" class="file-value"></span></div>
-      <div class="file-row"><span class="file-label">File type to allow</span><code id="fileMime" class="file-value mime"></code></div>
+      <div class="file-row"><span class="file-label">Sent by the website as</span><code id="fileSent" class="file-value mime"></code></div>
+      <div class="file-row"><span class="file-label" id="typesLabel">File type to allow</span><span id="fileMime" class="file-value"></span></div>
       <div class="file-row"><span class="file-label">From</span><span id="fileFrom" class="file-value url"></span></div>
     </div>
 

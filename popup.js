@@ -1,7 +1,7 @@
 // popup.js — popup, full-tab settings page and first-install setup guide.
 import {
   DEFAULT_SETTINGS, DEFAULT_SUBSCRIPTIONS, KIND_LABELS, MANAGED_SETTING_KEYS, MANUAL_KEYS, MIME_PRESETS,
-  PROTECTION_KEYS, describeMime, effectiveSettings, parseList
+  PROTECTION_KEYS, describeRequest, effectiveSettings, parseList
 } from "./lib.js";
 
 const $ = id => document.getElementById(id);
@@ -390,23 +390,40 @@ function renderRequests() {
   $("mimeRequestBadge").hidden = !mreqs.length;
   $("mimeRequestBadge").textContent = String(mreqs.length);
   $("mimeRequestList").replaceChildren(...mreqs.slice().reverse().map(r => {
-    const kind = describeMime(r.mime);
-    const risky = kind.level === "program";
-    const allowBtn = risky
+    // 2.3 requests hold one `mime`; 2.4 requests hold `mimes` (all types for an extension).
+    const types = Array.isArray(r.mimes) && r.mimes.length ? r.mimes : [r.mime];
+    const kind = describeRequest(types, r.ext);
+    const approve = () => send("approveMimeRequest", { mimes: types });
+    let allowBtn;
+    if (kind.level === "unknown") {
+      // octet-stream: lets almost anything through. Two clicks, worded plainly.
+      allowBtn = confirmButton("Allow", "Allow ALL unknown files?", approve, "btn small danger");
+    } else if (kind.level === "program") {
       // Programs need a second click, so they are never allowed by accident.
-      ? confirmButton("Allow", "Allow programs?", () => send("approveMimeRequest", { mime: r.mime }), "btn small danger")
-      : h("button", { class: "btn small primary", type: "button", onclick: () => send("approveMimeRequest", { mime: r.mime }) }, "Allow");
+      allowBtn = confirmButton("Allow", "Allow programs?", approve, "btn small danger");
+    } else {
+      allowBtn = h("button", { class: "btn small primary", type: "button", onclick: approve }, "Allow");
+    }
     let host = "";
     try { host = new URL(r.sourceUrl).hostname.replace(/^www\./, ""); } catch {}
+    const basisLine = r.basis === "extension"
+      ? `The site sent no real type, so it was checked by its name (.${r.ext}).`
+      : r.basis === "unknown"
+        ? `The site sent no real type and the name (${r.ext ? "." + r.ext : "no extension"}) doesn't say what it is.`
+        : null;
     return h("div", { class: "rowi" },
       h("span", { class: "what" },
-        h("strong", {}, kind.name), " ", h("code", {}, r.mime),
-        risky ? h("span", { class: "tag deny", style: "margin-left:6px" }, "Program") : null,
+        h("strong", {}, kind.name),
+        kind.level === "program" ? h("span", { class: "tag deny", style: "margin-left:6px" }, "Program") : null,
+        kind.level === "unknown" ? h("span", { class: "tag deny", style: "margin-left:6px" }, "Any file") : null,
+        h("span", { class: "type-list" }, ...types.map(t => h("code", {}, t))),
         h("span", { class: "excerpt" }, `${r.filename || "file"}${host ? ` from ${host}` : ""}`),
-        risky ? h("span", { class: "excerpt warn-text" }, "Programs can change the computer. Scammers ask people to download these.") : null),
+        basisLine ? h("span", { class: "excerpt" }, basisLine) : null,
+        kind.level === "program" ? h("span", { class: "excerpt warn-text" }, "Programs can change the computer. Scammers ask people to download these.") : null,
+        kind.level === "unknown" ? h("span", { class: "excerpt warn-text" }, "Allowing unknown files lets almost ANY download through, including programs. Only allow this if you trust everything this person downloads. It's safer to download the file for them.") : null),
       h("span", { class: "when" }, ago(r.timestamp)),
       allowBtn,
-      h("button", { class: "btn small", type: "button", onclick: () => send("dismissMimeRequest", { mime: r.mime }) }, "Dismiss"));
+      h("button", { class: "btn small", type: "button", onclick: () => send("dismissMimeRequest", { mimes: types }) }, "Dismiss"));
   }));
 }
 
@@ -453,8 +470,8 @@ function describeAudit(e) {
     case "subscription_changed": return `${KIND_LABELS[e.kind] || e.kind || ""} ${e.name || e.url || ""}: ${e.change}`.trim();
     case "site_requested": return e.domain;
     case "request_approved": case "request_dismissed": return `${e.domain} (by ${e.by})`;
-    case "mime_requested": return `${e.mime} (${e.filename || "file"})`;
-    case "mime_request_approved": case "mime_request_dismissed": return `${e.mime} (by ${e.by})`;
+    case "mime_requested": return `${(e.mimes || [e.mime]).join(", ")} (${e.filename || "file"}${e.basis === "extension" ? `, by name .${e.ext}` : ""})`;
+    case "mime_request_approved": case "mime_request_dismissed": return `${(e.mimes || [e.mime]).join(", ")} (by ${e.by})`;
     default: return JSON.stringify(e);
   }
 }

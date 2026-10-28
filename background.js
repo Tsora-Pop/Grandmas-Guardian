@@ -2,7 +2,7 @@
 import {
   BUILTIN_DENY, DEFAULT_SETTINGS, DEFAULT_SUBSCRIPTIONS, LOG_CAPS, MANUAL_KEYS,
   PROTECTION_KEYS, REFRESH_MINUTES, checkParsedList, chunk, effectiveSettings, hostMatches,
-  describeMime, looksLikeHtml, normalizeDomain, normalizeFor, normalizeMime, parseList, randomToken
+  OCTET, downloadAllowed, looksLikeHtml, mimeRequestFor, normalizeDomain, normalizeFor, normalizeMime, parseList, randomToken
 } from "./lib.js";
 
 const BLOCKPAGE = chrome.runtime.getURL("blockpage.html");
@@ -328,17 +328,29 @@ async function dismissRequest(domain, by) {
 }
 
 // ---------- requests to allow a file type ----------
-async function approveMimeRequest(mime, by) {
-  const res = await addManual("mime", [mime], by);
-  await updateKey("pendingMimeRequests", list => list.filter(r => r.mime !== mime));
-  await recordEvent({ type: "mime_request_approved", mime, by, ok: !!res.added });
+// A request holds one or several types (e.g. all the types used for ".exe").
+// Requests saved by 2.3 had a single `mime`; both shapes are read.
+const requestTypes = r => (Array.isArray(r.mimes) && r.mimes.length ? r.mimes : [r.mime]).filter(Boolean);
+const requestKey = types => [...new Set(types)].sort().join(" ");
+
+async function approveMimeRequest(types, by) {
+  const key = requestKey(types);
+  const res = await addManual("mime", types, by);
+  await updateKey("pendingMimeRequests", list => list.filter(r => requestKey(requestTypes(r)) !== key));
+  await recordEvent({ type: "mime_request_approved", mimes: types, by, ok: !!res.added });
   return res;
 }
 
-async function dismissMimeRequest(mime, by) {
-  await updateKey("pendingMimeRequests", list => list.filter(r => r.mime !== mime));
-  await recordEvent({ type: "mime_request_dismissed", mime, by });
+async function dismissMimeRequest(types, by) {
+  const key = requestKey(types);
+  await updateKey("pendingMimeRequests", list => list.filter(r => requestKey(requestTypes(r)) !== key));
+  await recordEvent({ type: "mime_request_dismissed", mimes: types, by });
   return { ok: true };
+}
+
+function typesFromMessage(msg) {
+  const raw = Array.isArray(msg.mimes) ? msg.mimes : [msg.mime];
+  return [...new Set(raw.map(t => normalizeMime(t || "")).filter(Boolean))].slice(0, 20);
 }
 
 // ---------- log forwarding (SIEM / collector / automation) ----------
@@ -613,17 +625,19 @@ async function handleDownload(item, suggest) {
   const { effectiveMimeTypes = [] } = await chrome.storage.local.get("effectiveMimeTypes");
 
   const mime = normalizeMime(item.mime || "") || "";
-  if (!s.mimeFilteringEnabled || (mime && effectiveMimeTypes.includes(mime))) {
+  let urlName = "";
+  try { urlName = decodeURIComponent((item.finalUrl || item.url || "").split(/[?#]/)[0].split("/").pop() || ""); } catch {}
+  const name = (item.filename || "").split(/[\\/]/).pop() || urlName || "file";
+
+  // Real types are checked as sent. Generic types (octet-stream, none, …) are
+  // judged by the extension of the name the file will be saved under.
+  if (!s.mimeFilteringEnabled || downloadAllowed(mime, name, effectiveMimeTypes)) {
     suggest();
     return;
   }
 
   try { await chrome.downloads.cancel(item.id); } catch {}
   try { suggest(); } catch {}
-
-  const name = (item.filename || "").split(/[\\/]/).pop()
-    || decodeURIComponent((item.finalUrl || item.url || "").split(/[?#]/)[0].split("/").pop() || "")
-    || "file";
 
   const entry = {
     id: randomToken(8),
@@ -810,31 +824,45 @@ async function handleMessage(msg, ctx) {
     const { blockedDownloads = [] } = await chrome.storage.local.get("blockedDownloads");
     const d = blockedDownloads.find(e => e.id === msg.id);
     if (!d) return { ok: false, error: "That download is no longer in the list." };
-    const mime = normalizeMime(d.mimeType);
-    if (!mime || describeMime(mime).level === "unknown") {
-      return { ok: false, error: "This file doesn't say what kind of file it is, so it can't be allowed by type." };
+    // Decided here, from the stored download, never from what the page sends.
+    const plan = mimeRequestFor(d.mimeType, d.filename);
+    const { effectiveMimeTypes = [] } = await chrome.storage.local.get("effectiveMimeTypes");
+    if (downloadAllowed(d.mimeType, d.filename, effectiveMimeTypes)) {
+      return { ok: true, nowAllowed: true, mimes: [] };
     }
-    const req = { mime, filename: d.filename, sourceUrl: d.sourceUrl, downloadId: d.id, timestamp: new Date().toISOString() };
+    // Only ask for what isn't allowed yet (octet-stream only ever as the last resort).
+    const types = plan.mimes.filter(t => !effectiveMimeTypes.includes(t));
+    const req = {
+      mimes: types, mime: types[0], basis: plan.basis, ext: plan.ext,
+      filename: d.filename, sourceUrl: d.sourceUrl, downloadId: d.id, timestamp: new Date().toISOString()
+    };
+    const key = requestKey(types);
     let isNew = false;
     await appendCapped("pendingMimeRequests", req, LOG_CAPS.pendingMimeRequests, list => {
-      const dup = list.some(r => r.mime === mime);
+      const dup = list.some(r => requestKey(requestTypes(r)) === key);
       isNew = !dup;
       return dup;
     });
-    if (isNew) await recordEvent({ type: "mime_requested", mime, filename: d.filename, sourceUrl: d.sourceUrl });
-    return { ok: true, mime, alreadyRequested: !isNew };
+    if (isNew) {
+      await recordEvent({ type: "mime_requested", mimes: types, basis: plan.basis, ext: plan.ext, filename: d.filename, sourceUrl: d.sourceUrl });
+    }
+    return { ok: true, mimes: types, basis: plan.basis, ext: plan.ext, alreadyRequested: !isNew };
   }
 
   if (msg.type === "checkMime" && ctx.downloadPage) {
-    const mime = normalizeMime(msg.mime || "");
-    if (!mime) return { ok: false };
+    const { blockedDownloads = [], effectiveMimeTypes = [], pendingMimeRequests = [] } =
+      await chrome.storage.local.get(["blockedDownloads", "effectiveMimeTypes", "pendingMimeRequests"]);
+    const d = blockedDownloads.find(e => e.id === msg.id);
+    if (!d) return { ok: false };
     const s = await getSettings();
-    const { effectiveMimeTypes = [], pendingMimeRequests = [] } =
-      await chrome.storage.local.get(["effectiveMimeTypes", "pendingMimeRequests"]);
+    const plan = mimeRequestFor(d.mimeType, d.filename);
+    const missing = plan.mimes.filter(t => !effectiveMimeTypes.includes(t));
     return {
       ok: true,
-      allowed: !s.mimeFilteringEnabled || effectiveMimeTypes.includes(mime),
-      pending: pendingMimeRequests.some(r => r.mime === mime)
+      allowed: !s.mimeFilteringEnabled || downloadAllowed(d.mimeType, d.filename, effectiveMimeTypes),
+      pending: pendingMimeRequests.some(r => requestKey(requestTypes(r)) === requestKey(missing)),
+      basis: plan.basis, ext: plan.ext, mimes: missing,
+      octetAllowed: effectiveMimeTypes.includes(OCTET)
     };
   }
 
@@ -970,11 +998,14 @@ async function handleMessage(msg, ctx) {
     case "dismissRequest":
       return dismissRequest(msg.domain, "settings page");
 
-    case "approveMimeRequest":
-      return approveMimeRequest(msg.mime, "settings page");
+    case "approveMimeRequest": {
+      const types = typesFromMessage(msg);
+      if (!types.length) return { ok: false, error: "Nothing to allow." };
+      return approveMimeRequest(types, "settings page");
+    }
 
     case "dismissMimeRequest":
-      return dismissMimeRequest(msg.mime, "settings page");
+      return dismissMimeRequest(typesFromMessage(msg), "settings page");
 
     case "clearLog":
       if (!["blockedLog", "blockedDownloads", "scamLog", "auditLog"].includes(msg.key)) return { ok: false };

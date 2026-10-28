@@ -324,6 +324,11 @@ const MIME_NAMES = {
   "application/x-java-archive": "Java program (.jar)",
   "application/java-archive": "Java program (.jar)",
   "application/x-ms-shortcut": "Windows shortcut (.lnk)",
+  "application/x-dosexec": "Windows program (.exe)",
+  "application/msix": "Windows app installer (.msix)",
+  "application/x-vbscript": "Windows script (.vbs)",
+  "application/javascript": "Script (.js)",
+  "application/x-iso9660-image": "Disc image (.iso)",
   "application/vnd.oasis.opendocument.text": "LibreOffice document (.odt)",
   "application/vnd.oasis.opendocument.spreadsheet": "LibreOffice spreadsheet (.ods)",
   "application/vnd.oasis.opendocument.presentation": "LibreOffice presentation (.odp)",
@@ -366,7 +371,11 @@ const RISKY_MIME = new Set([
   "application/vnd.apple.installer+xml", "application/vnd.android.package-archive", "application/x-sh",
   "application/x-shellscript", "application/x-bat", "application/x-powershell", "application/hta",
   "application/x-java-archive", "application/java-archive", "application/x-ms-shortcut",
-  "application/x-executable", "application/x-elf", "application/x-mach-binary"
+  "application/x-executable", "application/x-elf", "application/x-mach-binary",
+  "application/x-dosexec", "application/msix", "application/appx", "application/x-debian-package",
+  "application/x-vbscript", "application/javascript", "application/x-bash", "application/x-csh",
+  "application/x-python", "application/x-perl", "application/x-ruby", "application/x-php",
+  "application/x-iso9660-image", "application/x-vhd"
 ]);
 
 /**
@@ -386,4 +395,201 @@ export function describeMime(mime) {
   const [top] = m.split("/");
   const generic = { image: "Picture", audio: "Audio file", video: "Video", text: "Text file", font: "Font" }[top];
   return { name: generic || "File", level: "ordinary" };
+}
+
+// ---------------------------------------------------------------------------
+// Generic types and file extensions (v2.4)
+// Many sites send programs and other files as "application/octet-stream" (or no
+// type at all). For those, the file is judged by its extension instead.
+// ---------------------------------------------------------------------------
+export const OCTET = "application/octet-stream";
+
+// Types that say nothing about what the file is.
+const GENERIC_MIME = new Set([
+  "", "unknown", OCTET, "binary/octet-stream", "application/binary", "application/unknown",
+  "application/x-unknown", "application/download", "application/x-download",
+  "application/force-download", "application/x-force-download", "application/x-octet-stream"
+]);
+
+export function isGenericMime(mime) {
+  return GENERIC_MIME.has(String(mime || "").split(";")[0].trim().toLowerCase());
+}
+
+// Extension -> the real types servers use for it. The first entry is the usual
+// one (used for the friendly name). Includes every type in the bundled groups.
+const EXT_MIME = {
+  // documents
+  pdf: ["application/pdf"],
+  doc: ["application/msword"],
+  docx: ["application/vnd.openxmlformats-officedocument.wordprocessingml.document"],
+  docm: ["application/vnd.ms-word.document.macroEnabled.12"],
+  dotm: ["application/vnd.ms-word.template.macroEnabled.12"],
+  xls: ["application/vnd.ms-excel"],
+  xlsx: ["application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"],
+  xlsm: ["application/vnd.ms-excel.sheet.macroEnabled.12"],
+  xlsb: ["application/vnd.ms-excel.sheet.binary.macroEnabled.12"],
+  xltm: ["application/vnd.ms-excel.template.macroEnabled.12"],
+  xlam: ["application/vnd.ms-excel.addin.macroEnabled.12"],
+  ppt: ["application/vnd.ms-powerpoint"],
+  pptx: ["application/vnd.openxmlformats-officedocument.presentationml.presentation"],
+  pptm: ["application/vnd.ms-powerpoint.presentation.macroEnabled.12"],
+  ppsm: ["application/vnd.ms-powerpoint.slideshow.macroEnabled.12"],
+  potm: ["application/vnd.ms-powerpoint.template.macroEnabled.12"],
+  ppam: ["application/vnd.ms-powerpoint.addin.macroEnabled.12"],
+  mpp: ["application/vnd.ms-project"],
+  wri: ["application/x-mswrite"],
+  odt: ["application/vnd.oasis.opendocument.text"],
+  ods: ["application/vnd.oasis.opendocument.spreadsheet"],
+  odp: ["application/vnd.oasis.opendocument.presentation"],
+  odg: ["application/vnd.oasis.opendocument.graphics"],
+  pages: ["application/vnd.apple.pages", "application/x-iwork-pages-sffpages"],
+  numbers: ["application/vnd.apple.numbers", "application/x-iwork-numbers-sffnumbers"],
+  key: ["application/vnd.apple.keynote", "application/x-iwork-keynote-sffkey"],
+  rtf: ["application/rtf", "text/rtf"],
+  txt: ["text/plain"],
+  csv: ["text/csv"],
+  tsv: ["text/tab-separated-values"],
+  ics: ["text/calendar"],
+  vcf: ["text/vcard", "text/x-vcard", "text/directory"],
+  eml: ["message/rfc822"],
+  msg: ["application/vnd.ms-outlook"],
+  xps: ["application/vnd.ms-xpsdocument"],
+  oxps: ["application/oxps"],
+  epub: ["application/epub+zip"],
+  mobi: ["application/x-mobipocket-ebook"],
+  azw: ["application/vnd.amazon.ebook"],
+  azw3: ["application/vnd.amazon.ebook"],
+  fb2: ["application/x-fictionbook+xml"],
+  djvu: ["image/vnd.djvu"],
+  json: ["application/json"],
+  xml: ["application/xml"],
+  sql: ["application/sql", "application/x-sql"],
+  // money, family history, medical
+  ofx: ["application/x-ofx", "application/ofx"],
+  qfx: ["application/vnd.intu.qfx", "application/x-qfx"],
+  qbo: ["application/vnd.intu.qbo"],
+  qif: ["application/qif", "application/x-qif"],
+  ged: ["application/x-gedcom", "text/vnd.familysearch.gedcom"],
+  dcm: ["application/dicom"],
+  // pictures
+  jpg: ["image/jpeg"], jpeg: ["image/jpeg"], jpe: ["image/jpeg"],
+  png: ["image/png"], gif: ["image/gif"], webp: ["image/webp"], bmp: ["image/bmp"],
+  tif: ["image/tiff"], tiff: ["image/tiff"],
+  heic: ["image/heic", "image/heic-sequence"], heif: ["image/heif", "image/heif-sequence"],
+  avif: ["image/avif"], jxl: ["image/jxl"], svg: ["image/svg+xml"],
+  dng: ["image/x-adobe-dng"], cr2: ["image/x-canon-cr2"], cr3: ["image/x-canon-cr3"],
+  nef: ["image/x-nikon-nef"], arw: ["image/x-sony-arw"],
+  psd: ["image/vnd.adobe.photoshop", "application/x-photoshop"],
+  ai: ["application/vnd.adobe.illustrator"], cdr: ["application/x-coreldraw"],
+  kra: ["application/x-krita"], xcf: ["application/x-gimp"], sketch: ["application/x-sketch"],
+  // audio and video
+  mp3: ["audio/mpeg"], m4a: ["audio/mp4", "audio/x-m4a"], aac: ["audio/aac"],
+  wav: ["audio/wav", "audio/x-wav"], flac: ["audio/flac"], ogg: ["audio/ogg"], oga: ["audio/ogg"],
+  opus: ["audio/opus"], weba: ["audio/webm"], aif: ["audio/x-aiff"], aiff: ["audio/x-aiff"],
+  m3u: ["audio/x-mpegurl"], ra: ["audio/vnd.rn-realaudio"],
+  mp4: ["video/mp4"], m4v: ["video/mp4"], mov: ["video/quicktime"], webm: ["video/webm"],
+  avi: ["video/x-msvideo"], mkv: ["video/x-matroska"], mpg: ["video/mpeg"], mpeg: ["video/mpeg"],
+  "3gp": ["video/3gpp"], ogv: ["video/ogg"], wmv: ["video/x-ms-wmv"], flv: ["video/x-flv"],
+  // 3D, fonts
+  stl: ["model/stl", "application/sla"],
+  "3mf": ["model/3mf", "application/vnd.ms-package.3dmanufacturing-3dmodel+xml"],
+  obj: ["model/obj"], step: ["model/step", "application/step"], stp: ["model/step", "application/step"],
+  dxf: ["image/vnd.dxf", "application/dxf"],
+  ttf: ["font/ttf", "application/x-font-ttf"], otf: ["font/otf", "application/x-font-otf"],
+  woff: ["font/woff", "application/font-woff"], woff2: ["font/woff2"],
+  // compressed folders
+  zip: ["application/zip", "application/x-zip-compressed"],
+  "7z": ["application/x-7z-compressed"],
+  rar: ["application/vnd.rar", "application/x-rar-compressed"],
+  gz: ["application/gzip"], tgz: ["application/gzip"], tar: ["application/x-tar"],
+  bz: ["application/x-bzip"], bz2: ["application/x-bzip2"],
+  // databases
+  mdb: ["application/x-msaccess", "application/msaccess"], accdb: ["application/x-msaccess", "application/msaccess"],
+  dbf: ["application/x-dbf"], db: ["application/x-db"], sqlite: ["application/x-sqlite3"],
+  // programs, installers and scripts
+  exe: ["application/x-msdownload", "application/vnd.microsoft.portable-executable", "application/x-msdos-program", "application/x-dosexec", "application/x-executable"],
+  com: ["application/x-msdownload", "application/x-msdos-program"],
+  scr: ["application/x-msdownload"],
+  dll: ["application/x-msdownload"],
+  msi: ["application/x-msi", "application/x-ms-installer", "application/x-msdownload"],
+  msix: ["application/msix"], appx: ["application/appx"],
+  dmg: ["application/x-apple-diskimage"],
+  pkg: ["application/vnd.apple.installer+xml"],
+  apk: ["application/vnd.android.package-archive"],
+  deb: ["application/x-debian-package"],
+  jar: ["application/java-archive", "application/x-java-archive"],
+  bat: ["application/x-bat"], cmd: ["application/x-bat"],
+  ps1: ["application/x-powershell"],
+  vbs: ["application/x-vbscript"], js: ["application/javascript"], hta: ["application/hta"],
+  lnk: ["application/x-ms-shortcut"],
+  sh: ["application/x-sh", "application/x-shellscript"], bash: ["application/x-bash", "application/x-sh"],
+  csh: ["application/x-csh"], py: ["application/x-python"], pl: ["application/x-perl"],
+  rb: ["application/x-ruby"], php: ["application/x-php"],
+  iso: ["application/x-iso9660-image"], vhd: ["application/x-vhd"], vmdk: ["application/x-vmdk"],
+  qcow2: ["application/x-qcow"]
+};
+
+// Extensions that run code, even if a type for them isn't in RISKY_MIME.
+const RISKY_EXT = new Set([
+  "exe", "com", "scr", "dll", "msi", "msix", "appx", "dmg", "pkg", "apk", "deb", "jar", "bat", "cmd",
+  "ps1", "vbs", "js", "hta", "lnk", "sh", "bash", "csh", "py", "pl", "rb", "php", "iso", "vhd",
+  "docm", "dotm", "xlsm", "xlsb", "xltm", "xlam", "pptm", "ppsm", "potm", "ppam"
+]);
+
+/**
+ * The extension of the name the file will be saved under, lowercase, or "".
+ * Trailing dots and spaces are ignored because Windows drops them when saving
+ * ("Support.exe." is saved as "Support.exe").
+ */
+export function fileExtension(name) {
+  const base = String(name || "").split(/[\\/]/).pop().replace(/[.\s]+$/, "");
+  const i = base.lastIndexOf(".");
+  if (i <= 0) return "";
+  const ext = base.slice(i + 1).toLowerCase();
+  return /^[a-z0-9]{1,10}$/.test(ext) ? ext : "";
+}
+
+export function typesForExtension(ext) {
+  return EXT_MIME[ext] ? [...EXT_MIME[ext]] : [];
+}
+
+/**
+ * What a stopped download should ask for.
+ *  basis "type":      the site sent a real type; ask for that type.
+ *  basis "extension": the site sent a generic type; ask for the real types of the
+ *                     file's extension (never octet-stream).
+ *  basis "unknown":   generic type and an extension we can't place (or none);
+ *                     the only option left is octet-stream.
+ */
+export function mimeRequestFor(mime, filename) {
+  const m = normalizeMime(mime || "") || "";
+  const ext = fileExtension(filename);
+  if (m && !isGenericMime(m)) return { basis: "type", ext, mimes: [m] };
+  const types = typesForExtension(ext);
+  if (types.length) return { basis: "extension", ext, mimes: types };
+  return { basis: "unknown", ext, mimes: [OCTET] };
+}
+
+/**
+ * The download filter's decision. Real types are checked as sent. Generic types
+ * are allowed if octet-stream itself is allowed, or if any real type of the file's
+ * extension is allowed.
+ */
+export function downloadAllowed(mime, filename, allowed) {
+  const set = allowed instanceof Set ? allowed : new Set(allowed || []);
+  const m = normalizeMime(mime || "") || "";
+  if (m && !isGenericMime(m)) return set.has(m);
+  if (set.has(OCTET)) return true;
+  return typesForExtension(fileExtension(filename)).some(t => set.has(t));
+}
+
+/** Friendly description of a request (one or several types). */
+export function describeRequest(mimes, ext = "") {
+  const list = (mimes || []).filter(Boolean);
+  if (list.includes(OCTET) || !list.length) return { name: "Unknown files (any kind)", level: "unknown" };
+  const first = describeMime(list[0]);
+  const program = list.some(t => describeMime(t).level === "program") || RISKY_EXT.has(ext);
+  let name = first.name;
+  if (ext && !name.includes(`.${ext}`)) name = `${name} (.${ext})`;
+  return { name, level: program ? "program" : "ordinary" };
 }

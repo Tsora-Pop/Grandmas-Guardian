@@ -1,5 +1,66 @@
 # Changelog
 
+## 2.4.0
+
+### Files sent as "unknown type" are judged by their extension
+
+Many sites send programs and other files as `application/octet-stream`, or with no type at all, which says nothing about what the file is. In 2.3 those files could not be requested, and allowing `octet-stream` would have let almost any download through. Version 2.4 reads the file's extension in that case.
+
+**What counts as a generic type:** none at all, `application/octet-stream`, `binary/octet-stream`, `application/binary`, `application/unknown`, `application/x-unknown`, `application/download`, `application/x-download`, `application/force-download`, `application/x-force-download`, and `application/x-octet-stream`. A real type (for example `application/pdf`) is still checked exactly as sent, as before.
+
+**The filter (background).** When a download arrives with a generic type:
+1. The extension is read from the name the file will be saved under. Trailing dots and spaces are ignored, because Windows drops them when saving (`Support.exe.` is saved as `Support.exe`). Double extensions are judged by the real last one (`invoice.pdf.exe` is `.exe`).
+2. The extension is looked up in a table of about 150 extensions, each with the real types servers use for it. For example, `.exe` maps to `application/x-msdownload`, `application/vnd.microsoft.portable-executable`, `application/x-msdos-program`, `application/x-dosexec`, and `application/x-executable`. The table includes every type in the bundled file-type groups.
+3. The download is **allowed if any of those types is on the allowed list**, or if `application/octet-stream` itself is allowed. Otherwise it is stopped.
+
+So once a helper allows `.exe` files, an `.exe` sent as `octet-stream` downloads, while other `octet-stream` files (an `.mp4`, say) are still stopped. `octet-stream` never has to be allowed for a file with a recognizable extension.
+
+**The request (Download stopped page).** The request now carries one or several types:
+
+| What the site sent | What is requested | Button |
+|---|---|---|
+| A real type | That type, as in 2.3 | Ask Tom to allow this kind of file |
+| A generic type, known extension | Every real type for that extension that isn't allowed yet. **Never `octet-stream`.** | Ask Tom to allow .exe files |
+| A generic type, unknown or no extension | `application/octet-stream`, as the last resort | Ask Tom to allow unknown files |
+
+The page shows a new **Sent by the website as** line and lists the type or types to allow. When the file was judged by its name, a blue note says so: "The website didn't say what kind of file this is, so it was checked by its name (.exe)." If some of the extension's types are already allowed, only the missing ones are listed and requested. If they became allowed while the page was open, the page switches to "now allowed" and offers **Download again**.
+
+**Asking for "unknown files" (`octet-stream`).** This is only offered when nothing else can be: no extension, or one the table doesn't know. The page shows a red warning that this would allow *all* unknown files, programs included, and that the helper will be warned. In the popup, the request is labeled **ANY FILE**, explains that allowing it lets almost any download through, suggests downloading the file for them instead, and needs a second click: **Allow ALL unknown files?**
+
+You asked for a step that tells the user when the extension's real types are already allowed and the only thing missing is `octet-stream`, and then requests `octet-stream`. That situation can no longer happen: with the extension check in place, such a download is simply let through.
+
+**Programs.** Program extensions keep the scam warning on the page and the two-click **Allow programs?** in the popup, even when the site sent `octet-stream`. These include `.exe`, `.msi`, `.dmg`, `.apk`, `.bat`, `.ps1`, `.vbs`, `.js`, `.jar`, `.lnk`, `.iso`, scripts, and Office files with macros. Nineteen more types were added to the program list, including `application/x-dosexec`, `application/javascript`, and `application/x-vbscript`.
+
+**The popup.**
+- One request row now holds every type for the extension, and **Allow** adds them all at once.
+- Each row says why it asks for what it does (for example "checked by its name (.exe)").
+- Requests saved by 2.3 (a single type) still show and approve normally.
+- Requests, approvals, and dismissals in **Activity → Changes** list every type involved.
+
+### Safety notes
+
+- **The request is decided by the background, from the stored download.** The page only sends the download's ID, so it can't ask for a different type.
+- **Generic types get no special trust.** A file sent as `octet-stream` passes only if its extension's real types are allowed, exactly as if the site had sent the real type.
+- **Real types are still checked as sent, unchanged from earlier versions.** For example, a file sent as `application/pdf` but named `.exe` passes if PDF is allowed. Checking the extension against real types too would close that gap; see the publishing notes.
+
+### Publishing notes
+
+- **Permissions:** no new ones. **GitHub Pages:** no changes. **Store package:** same file list as 2.3.
+- **Store review:** code change, so leave "skip review" unchecked.
+- **Possible follow-up:** stop a download when its extension is a program but the site claims a harmless real type (for example `Support.exe` sent as `application/pdf`). Off by default in this version, to keep the "real types are checked as sent" rule you set.
+
+### Files
+
+| File | Change |
+|---|---|
+| `lib.js` | Generic-type list, extension table, `fileExtension`, `mimeRequestFor`, `downloadAllowed`, `describeRequest`; more program types and names |
+| `background.js` | Filter uses `downloadAllowed`; requests hold several types; `checkMime` works from the download ID; approve/dismiss take several types (2.3 single-type requests still accepted) |
+| `downloadblocked.html`, `downloadblocked.js` | "Sent by the website as" line, list of types, judged-by-name note, last-resort warning, button wording |
+| `popup.js`, `popup.css` | Multi-type request rows, **ANY FILE** label and two-click approval |
+| `ui.css` | Note and type-list styles |
+| `manifest.json` | 2.4.0 |
+| `tests/background.test.mjs` | 19 new checks (123 total) |
+
 ## 2.3.0
 
 ### A "Download stopped" page, and requests to allow a file type

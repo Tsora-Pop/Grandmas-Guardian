@@ -160,3 +160,4 @@ select optgroup { font-weight: 700; }
 #mimeRequestList .rowi .what { flex: 1 1 100%; }
 #mimeRequestList .rowi .when { margin-right: auto; }
 #mimeRequestList code { word-break: break-all; }
+#mimeRequestList .type-list { display: flex; flex-wrap: wrap; gap: 3px; margin: 3px 0 1px; }
