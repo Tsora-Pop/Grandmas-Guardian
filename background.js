@@ -740,6 +740,22 @@ async function handleMessage(msg, ctx) {
     return { ok: true };
   }
 
+  if (msg.type === "checkSite" && ctx.blockPage) {
+    // Lets an open block page notice that its site has since been allowed.
+    let host;
+    try {
+      const u = new URL(cleanUrl(msg.url));
+      if (u.protocol !== "http:" && u.protocol !== "https:") return { ok: false };
+      host = u.hostname.toLowerCase();
+    } catch {
+      return { ok: false };
+    }
+    const eff = await getEffective();
+    const denied = hostMatches(host, new Set(denyListFor(eff)));
+    const allowed = !denied && (!eff.settings.domainFilteringEnabled || hostMatches(host, eff.sets.allow));
+    return { ok: true, allowed, denied };
+  }
+
   if (msg.type === "requestSite" && ctx.blockPage) {
     const url = cleanUrl(msg.url);
     const domain = normalizeDomain(url, { stripWww: true });

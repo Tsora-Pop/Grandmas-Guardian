@@ -21,15 +21,18 @@
     </div>
 
     <div class="actions">
+      <a id="openBtn" class="btn primary" hidden>Open the page ➜</a>
       <button id="backBtn" class="btn primary" type="button">⬅ Go back</button>
       <button id="requestBtn" class="btn" type="button">Ask to allow this site</button>
     </div>
     <p id="requestStatus" class="status" role="status"></p>
 
-    <details class="details">
-      <summary>Page address</summary>
-      <p id="blockedUrl" class="url"></p>
-    </details>
+    <div class="address">
+      <span class="address-label">Page address</span>
+      <a id="blockedLink" class="url" hidden></a>
+      <span id="blockedUrl" class="url"></span>
+      <p id="addressHint" class="address-hint" hidden>Once this site has been allowed, click the address to open it. There's no need to type it.</p>
+    </div>
   </main>
   <script src="blockpage.js"></script>
 </body>

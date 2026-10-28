@@ -1,6 +1,38 @@
 # Changelog
 
-## Before you publish (2.0.0 + 2.1.0)
+## 2.2.0
+
+### Clickable page address on the block page
+
+Before, the blocked address was hidden behind a collapsed "Page address" section and was plain text, so after a site was approved the person had to retype it, and typos sent them to the wrong (possibly scam) site.
+
+- **The address is now always visible and clickable** for ordinary blocked sites, with a hint: "Once this site has been allowed, click the address to open it. There's no need to type it." The link opens in the same tab, with no referrer.
+- **The page updates itself when the site is approved.** The person usually leaves the block page open while the helper approves the request in the popup. As soon as the new rules are in force, the page changes to **This site is now allowed**, with an **Open the page ➜** button (focused, so Enter works) that goes to the exact original address, including any `?query` and `#section`. The request button and helper box are hidden at that point.
+  - It also checks when the page loads, so a block page reopened from history after approval shows the Open button straight away.
+  - After pressing **Ask to allow**, the status now says to leave the page open.
+- **Dangerous sites (always-block list) stay plain text.** They can never be allowed, so there is nothing to click through to, and a clickable remote-control link is exactly what a scammer would want.
+- **Only real web addresses are ever linked.** The block page can be opened by any website with any text after `#`, so anything other than `http:`/`https:` is shown as text and never becomes a link: `javascript:`, `data:`, `file:` and `chrome:` included. Addresses from v1's old `?url=` form are still linked.
+
+How the live update works: the block page asks the background (`checkSite`) whether its address is now allowed, on load and whenever `rulesStatus` changes. That value is written right after the browser's blocking rules are updated, so the page never shows **Open** before the site will actually load. Like the other block-page messages, `checkSite` is only accepted from a top-level block page, not from an iframe or a website. It reports a site as allowed only if it is on the allowlist (or allowlisting is off) **and** not on the always-block list.
+
+### Publishing notes
+
+- **No permission or manifest changes** other than the version number. Existing users are not prompted.
+- **No GitHub Pages changes.** The lists are unchanged.
+- **Store review:** this is a code change, so leave "only changes to safe static rules / skip review" unchecked. It goes through normal review, with no new permissions to justify.
+
+### Files
+
+| File | Change |
+|---|---|
+| `blockpage.html` | Visible address box with link, hint, and hidden **Open the page** button |
+| `blockpage.js` | Link only for `http(s)` addresses on ordinary blocks; live "now allowed" update |
+| `background.js` | New `checkSite` message (block page only) |
+| `ui.css` | Address box, link and "allowed" styles |
+| `manifest.json` | 2.2.0 |
+| `tests/background.test.mjs` | 6 new checks for `checkSite` (81 total) |
+
+## 2.1.0: before you publish (2.0.0 + 2.1.0)
 
 Version 2.0.0 was never published on its own, so these steps cover both releases.
 

@@ -7,10 +7,33 @@
   const blockedUrl = location.hash ? location.hash.slice(1) : (params.get("url") || "");
 
   const $ = id => document.getElementById(id);
-  $("blockedUrl").textContent = blockedUrl || "(unknown)";
 
+  // Only real web addresses are ever made clickable. This page can be opened by
+  // any website with any text after "#", so never link javascript:, data:,
+  // file: or anything else.
+  let webUrl = null;
   let host = "";
-  try { host = new URL(blockedUrl).hostname.replace(/^www\./, ""); } catch {}
+  try {
+    const u = new URL(blockedUrl);
+    if (u.protocol === "http:" || u.protocol === "https:") {
+      webUrl = u.href;
+      host = u.hostname.replace(/^www\./, "");
+    }
+  } catch {}
+
+  // Page address: a link for ordinary blocked sites, plain text for dangerous ones
+  // (they can never be allowed, so there is nothing to click through to).
+  if (webUrl && reason === "allow") {
+    const link = $("blockedLink");
+    link.href = webUrl;
+    link.textContent = webUrl;
+    link.rel = "noopener noreferrer";
+    link.hidden = false;
+    $("blockedUrl").hidden = true;
+    $("addressHint").hidden = false;
+  } else {
+    $("blockedUrl").textContent = blockedUrl || "(unknown)";
+  }
 
   if (reason === "deny") {
     $("title").textContent = "This page is not safe";
@@ -51,9 +74,50 @@
     const res = await chrome.runtime.sendMessage({ type: "requestSite", url: blockedUrl });
     $("requestBtn").disabled = true;
     $("requestStatus").textContent = res?.ok
-      ? `Request saved. ${helperName || "Your helper"} can approve it in Grandma's Guardian.`
+      ? `Request saved. ${helperName || "Your helper"} can approve it in Grandma's Guardian. ` +
+        "Leave this page open: it will tell you when the site is allowed."
       : (res?.error || "Sorry, that request couldn't be saved.");
   });
+
+  // When the site is approved (usually while this tab is still open), switch the
+  // page to "now allowed" with an Open button, so nobody has to retype the address.
+  let shownAllowed = false;
+  function showAllowed() {
+    if (shownAllowed) return;
+    shownAllowed = true;
+    document.querySelector(".block-card").classList.add("allowed");
+    $("title").textContent = "This site is now allowed";
+    const note = $("reason");
+    note.className = "allowed-note";
+    note.textContent = `${host} has been added to your allowed websites.`;
+    $("requestBtn").hidden = true;
+    $("helperBox").hidden = true;
+    $("requestStatus").textContent = "";
+    $("backBtn").classList.remove("primary");
+    const open = $("openBtn");
+    open.href = webUrl;
+    open.rel = "noopener noreferrer";
+    open.hidden = false;
+    open.focus();
+    $("addressHint").textContent = "Click Open the page, or the address above.";
+  }
+
+  async function checkAllowed() {
+    if (!webUrl || reason !== "allow" || shownAllowed) return;
+    try {
+      const res = await chrome.runtime.sendMessage({ type: "checkSite", url: webUrl });
+      if (res?.ok && res.allowed) showAllowed();
+    } catch {}
+  }
+
+  if (webUrl && reason === "allow") {
+    // rulesStatus is written right after the browser's blocking rules are updated,
+    // so by the time it changes, the new rules are already in force.
+    chrome.storage.onChanged.addListener((changes, area) => {
+      if (area === "local" && changes.rulesStatus) checkAllowed();
+    });
+    checkAllowed(); // e.g. the tab was reopened after the site was approved
+  }
 
   if (blockedUrl) {
     chrome.runtime.sendMessage({ type: "logBlocked", url: blockedUrl, reason });
