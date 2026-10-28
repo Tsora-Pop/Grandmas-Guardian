@@ -22,12 +22,16 @@ Windows
 MacOS  
 ChromeOS
 Linux  
+Mobile (Vivaldi, Lemur, Titanium)
 
 <b>Supported Browsers:</b>  
 Chrome  
 Edge  
 Brave  
 Opera  
+Vivaldi
+Lemur
+Titaniam
 
 Disclaimer: This browser extension is developed by someone who is active in the defensive cyber security community and based in North Carolina, United States. This tool's source code is open source, however contributions are not being added at this time. Several quality-of-life updates are expected in the future, as well as other enhancements to core features (block log exports, etc). 
 
