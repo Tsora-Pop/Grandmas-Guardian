@@ -169,3 +169,11 @@ body.blockpage {
 }
 .block-card #fileMime { display: grid; gap: 2px; }
 .block-card #fileMime code { word-break: break-all; }
+
+/* extension-stopped page: what the extension can do */
+.perm-list { list-style: none; margin: 0; padding: 0; text-align: left; }
+.perm-list .perm { padding: 2px 0 2px 20px; position: relative; }
+.perm-list .perm::before { content: "•"; position: absolute; left: 6px; color: var(--muted); }
+.perm-list .perm.danger { color: var(--bad); font-weight: 600; }
+.perm-list .perm.danger::before { content: "⚠"; left: 0; }
+.perm-list .perm.warn { font-weight: 600; }

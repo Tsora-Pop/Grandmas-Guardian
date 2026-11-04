@@ -28,13 +28,20 @@
     </div>
 
     <div class="step" data-step="2">
+      <h2>Connect to a support team <span class="muted">(optional)</span></h2>
+      <p>If an IT team or a family member runs a <strong>Guardian Support</strong> server, connect this computer to it. Requests to allow a website or a kind of file then go to that team, who can approve them from their phone or computer.</p>
+      <p class="muted small">No support team? Just press <strong>Next</strong>. You can connect later under Settings.</p>
+      <div id="setupSupport"></div>
+    </div>
+
+    <div class="step" data-step="3">
       <h2>Choose the protections</h2>
       <p>All four are recommended. Lists download automatically and update once a day.</p>
       <div id="setupToggles" class="stack"></div>
       <p class="muted small" id="setupListStatus"></p>
     </div>
 
-    <div class="step" data-step="3">
+    <div class="step" data-step="4">
       <h2>Add the websites they use</h2>
       <p>Only allowed websites will open. Add the sites this computer already visits most, then any others they need (their bank, church, pharmacy…).</p>
       <button class="btn" id="setupTopSites" type="button">➕ Add most-visited websites</button>
@@ -45,7 +52,7 @@
       <p class="muted small" id="setupDomainStatus" role="status"></p>
     </div>
 
-    <div class="step" data-step="4">
+    <div class="step" data-step="5">
       <h2>Protect private (Incognito) windows</h2>
       <div id="setupIncognitoOk" class="notice ok" hidden>✅ Private windows are protected.</div>
       <div id="setupIncognitoBad">
@@ -62,7 +69,7 @@
       </div>
     </div>
 
-    <div class="step" data-step="5">
+    <div class="step" data-step="6">
       <h2>All set 🎉</h2>
       <ul class="tips">
         <li>Pin the shield to the toolbar: click the puzzle piece 🧩 next to the address bar, then the pin.</li>
@@ -96,6 +103,7 @@
     <nav class="tabs" role="tablist" aria-label="Sections">
       <button class="tab" role="tab" data-tab="sites" aria-selected="true">Websites<span id="requestBadge" class="badge" hidden></span></button>
       <button class="tab" role="tab" data-tab="downloads">Downloads<span id="mimeRequestBadge" class="badge" hidden></span></button>
+      <button class="tab" role="tab" data-tab="extensions">Extensions<span id="extRequestBadge" class="badge" hidden></span></button>
       <button class="tab" role="tab" data-tab="scam">Scam words</button>
       <button class="tab" role="tab" data-tab="activity">Activity</button>
       <button class="tab" role="tab" data-tab="settings">Settings</button>
@@ -155,6 +163,35 @@
         </div>
       </section>
 
+      <section class="panel" data-panel="extensions" role="tabpanel" hidden>
+        <div id="extRequestsCard" class="card" hidden>
+          <h2>Requests to allow an extension</h2>
+          <p class="muted small">Check what each extension can do before allowing it. Scammers ask people to install extensions that read or control the browser.</p>
+          <div id="extRequestList" class="rows"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <div>
+              <h2>Only allow these browser extensions</h2>
+              <p class="muted small">Any other extension is turned off as soon as it's installed or switched on, and the person can ask for it. Turning this on keeps the extensions installed now (review them below).</p>
+            </div>
+            <label class="switch" title="Extension allowlisting"><input type="checkbox" id="extToggle" aria-label="Extension allowlisting"><span class="track"></span></label>
+          </div>
+          <div id="extNote"></div>
+          <div id="extInstalled" class="rows"></div>
+          <h3 class="subhead">Allowed extensions</h3>
+          <p class="muted small">Extension IDs, e.g. <code>nngceckbapebfimnlniiiahkandclblb</code> (the last part of its Chrome Web Store address). Online lists of IDs work like the other lists.</p>
+          <div class="editor" data-kind="extallow"></div>
+        </div>
+
+        <div class="card">
+          <h2>Always block these extensions</h2>
+          <p class="muted small">Turned off even if they're on the allowed list (remote-control tools and other extensions scammers use). Only a support team can make an exception.</p>
+          <div class="editor" data-kind="extdeny"></div>
+        </div>
+      </section>
+
       <section class="panel" data-panel="scam" role="tabpanel" hidden>
         <div class="card">
           <div class="card-head">
@@ -201,6 +238,16 @@
         </div>
         <div class="card">
           <div class="card-head">
+            <div>
+              <h2>Extensions</h2>
+              <p class="muted small">Extensions turned off, couldn't be turned off, or requested, with what they can do.</p>
+            </div>
+            <button class="btn small" data-clear="extensionLog" type="button">Clear</button>
+          </div>
+          <div id="extensionLogList" class="rows log"></div>
+        </div>
+        <div class="card">
+          <div class="card-head">
             <h2>Stopped downloads</h2>
             <button class="btn small" data-clear="blockedDownloads" type="button">Clear</button>
           </div>
@@ -230,6 +277,7 @@
             <span id="helperSaved" class="muted small" role="status"></span>
           </div>
         </div>
+        <div class="card" id="supportCard"></div>
         <div class="card" id="forwardCard">
           <div class="card-head">
             <div>
@@ -240,7 +288,8 @@
           </div>
           <div id="forwardDetails" class="stack">
             <label class="field">Collector URL <input type="url" id="forwardUrl" placeholder="https://logs.example.com/ingest"></label>
-            <label class="field">Authorization header <span class="muted small">(optional, e.g. <code>Bearer …</code> or <code>Splunk …</code>)</span><input type="text" id="forwardAuth" autocomplete="off"></label>
+            <label class="field">Authorization header <span class="muted small">(optional, e.g. <code>Bearer …</code> or <code>Splunk …</code>)</span><input type="password" id="forwardAuth" autocomplete="off" spellcheck="false"></label>
+            <button class="btn small" id="clearForwardAuth" type="button" hidden>Remove the saved header</button>
             <label class="field">Format
               <select id="forwardFormat">
                 <option value="json">JSON array</option>

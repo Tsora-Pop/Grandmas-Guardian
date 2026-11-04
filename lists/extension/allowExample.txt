@@ -1,0 +1,4 @@
+# Example allowed-extensions list. One extension ID per line; anything after the ID is a note.
+# Chrome Web Store IDs (Edge Add-ons and Firefox use different IDs).
+nngceckbapebfimnlniiiahkandclblb  Bitwarden Password Manager
+ghbmnnjooekpmoecnnnilnnbdlolhkhi  Google Docs Offline

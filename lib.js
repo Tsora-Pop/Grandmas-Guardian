@@ -9,14 +9,18 @@ export const MANUAL_KEYS = {
   allow: "allowlist",
   deny: "denylist",
   mime: "allowedMimeTypes",
-  scam: "scamTerms"
+  scam: "scamTerms",
+  extallow: "allowedExtensions",
+  extdeny: "deniedExtensions"
 };
 
 export const KIND_LABELS = {
   allow: "Allowed websites",
   deny: "Always-blocked websites",
   mime: "Allowed file types",
-  scam: "Scam words"
+  scam: "Scam words",
+  extallow: "Allowed extensions",
+  extdeny: "Always-blocked extensions"
 };
 
 // Default subscriptions. `fallback` is a copy bundled inside the extension that is
@@ -49,6 +53,13 @@ export const DEFAULT_SUBSCRIPTIONS = [
     name: "Common scam phrases",
     url: `${LIST_BASE}/semantics/scamTermDefault.txt`,
     fallback: "lists/semantic/scamTermDefault.txt"
+  },
+  {
+    id: "default-extdeny",
+    kind: "extdeny",
+    name: "Remote-control and risky extensions",
+    url: `${LIST_BASE}/extension/denyDefault.txt`,
+    fallback: "lists/extension/denyDefault.txt"
   }
 ];
 
@@ -97,6 +108,7 @@ export const DEFAULT_SETTINGS = {
   domainFilteringEnabled: true,  // website allowlist
   denyFilteringEnabled: true,    // always-block list
   mimeFilteringEnabled: true,    // download file types
+  extensionFilteringEnabled: false, // only allowed browser extensions may run (needs the optional "management" permission)
   helperName: "",
   helperPhone: "",
   personName: "",                // who uses this computer, e.g. "Grandma Jean" (used in logs)
@@ -118,7 +130,8 @@ export const MANAGED_SETTING_KEYS = [
 export const REFRESH_MINUTES = 24 * 60;
 export const LOG_CAPS = {
   blockedLog: 500, blockedDownloads: 200, pendingRequests: 50,
-  scamLog: 500, auditLog: 300, forwardQueue: 2000, pendingMimeRequests: 50
+  scamLog: 500, auditLog: 300, forwardQueue: 2000, pendingMimeRequests: 50,
+  extensionLog: 300, pendingExtRequests: 50
 };
 
 // ---------- normalisers ----------
@@ -136,7 +149,12 @@ const SINK_IPS = new Set(["0.0.0.0", "127.0.0.1", "::1", "::", "255.255.255.255"
  * already covers www.example.com). Not used for the block list, so a feed entry
  * like "www.example.com" never widens into blocking all of example.com.
  */
-export function normalizeDomain(input, { stripWww = false } = {}) {
+// This computer itself, for people (often developers) who run sites locally. Allowed
+// on the allow list only: hosts files list "127.0.0.1 localhost", which must never
+// turn into an always-block entry.
+const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1"]);
+
+export function normalizeDomain(input, { stripWww = false, allowLocal = false } = {}) {
   if (typeof input !== "string") return null;
   let s = input.trim().toLowerCase();
   if (!s) return null;
@@ -161,6 +179,7 @@ export function normalizeDomain(input, { stripWww = false } = {}) {
   }
   host = host.replace(/\.$/, "");
   if (stripWww && host.startsWith("www.") && host.split(".").length > 2) host = host.slice(4);
+  if (allowLocal && LOCAL_HOSTS.has(host)) return host;
   if (SINK_IPS.has(host) || host === "localhost") return null;
   if (!HOST_RE.test(host)) return null;
   if (!host.includes(".")) return null;
@@ -190,12 +209,134 @@ export function normalizeTerm(input) {
   return s;
 }
 
+// ---------- browser extensions ----------
+
+/**
+ * An extension ID: Chrome/Edge (32 letters a–p), or Firefox ("name@example.org" or
+ * "{GUID}"). Lists may add a name after the ID ("abc… Chrome Remote Desktop").
+ */
+export function normalizeExtId(input) {
+  if (typeof input !== "string") return null;
+  let s = input.trim().split(/[\s#]/)[0];
+  // Chrome Web Store / Edge Add-ons address: take the ID at the end.
+  const m = s.match(/\/([a-p]{32})(?:[/?#]|$)/i);
+  if (m) s = m[1];
+  if (/^[a-p]{32}$/i.test(s)) return s.toLowerCase();
+  if (/^\{[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\}$/i.test(s)) return s.toLowerCase();
+  if (/^[a-z0-9._+-]{1,80}@[a-z0-9.-]{1,80}$/i.test(s)) return s.toLowerCase();
+  return null;
+}
+
+// What each permission lets an extension do, in plain words, and how much it matters.
+// danger: could take over the browser, read everything, or reach outside it.
+export const PERMISSION_INFO = {
+  "<all_urls>": ["Read and change everything on every website you visit", "warn"],
+  debugger: ["Control the browser like a developer tool, including reading every page and password typed", "danger"],
+  nativeMessaging: ["Talk to programs installed on the computer", "danger"],
+  proxy: ["Send all your browsing through another server", "danger"],
+  management: ["Turn other extensions on and off, including security ones", "danger"],
+  desktopCapture: ["Record or share your screen", "danger"],
+  tabCapture: ["Record what's shown in your tabs", "danger"],
+  privacy: ["Change the browser's privacy settings", "danger"],
+  contentSettings: ["Change which sites may use your camera, microphone, pop-ups and more", "danger"],
+  cookies: ["Read and change website sign-in cookies (could take over accounts)", "danger"],
+  webRequestBlocking: ["Change web traffic as it loads", "danger"],
+  clipboardRead: ["Read what you copy, such as passwords and account numbers", "danger"],
+  pageCapture: ["Save complete copies of pages you visit", "warn"],
+  history: ["Read and delete your browsing history", "warn"],
+  tabs: ["See the addresses and titles of all your tabs", "warn"],
+  webRequest: ["Watch web traffic as it loads", "warn"],
+  webNavigation: ["See every page you open", "warn"],
+  scripting: ["Run its own code inside web pages", "warn"],
+  declarativeNetRequest: ["Block or redirect websites", "warn"],
+  declarativeNetRequestWithHostAccess: ["Block or redirect websites", "warn"],
+  downloads: ["Start, open and manage downloads", "warn"],
+  "downloads.open": ["Open downloaded files", "danger"],
+  browsingData: ["Delete your browsing data", "warn"],
+  bookmarks: ["Read and change your bookmarks", "warn"],
+  topSites: ["See your most-visited websites", "info"],
+  geolocation: ["Know where you are", "warn"],
+  identity: ["Use your browser sign-in to sign you in to services", "warn"],
+  "identity.email": ["See your email address", "warn"],
+  clipboardWrite: ["Change what you copy", "info"],
+  notifications: ["Show notifications", "info"],
+  storage: ["Save its own settings", "info"],
+  unlimitedStorage: ["Save large amounts of data", "info"],
+  alarms: ["Run on a schedule", "info"],
+  contextMenus: ["Add items to the right-click menu", "info"],
+  menus: ["Add items to the right-click menu", "info"],
+  activeTab: ["Work with the current tab when you click it", "info"],
+  offscreen: ["Work in the background", "info"],
+  sidePanel: ["Show a side panel", "info"],
+  idle: ["Know when you're away from the computer", "info"],
+  power: ["Keep the computer awake", "info"],
+  tts: ["Read text aloud", "info"],
+  search: ["Run searches", "info"],
+  sessions: ["See recently closed tabs", "warn"],
+  userScripts: ["Run scripts you add on websites", "warn"],
+  "enterprise.deviceAttributes": ["Read this computer's organization details", "warn"],
+  "enterprise.platformKeys": ["Use this computer's security certificates", "danger"],
+  certificateProvider: ["Provide security certificates", "danger"],
+  vpnProvider: ["Act as a VPN for the computer", "danger"],
+  webAuthenticationProxy: ["Handle security-key sign-ins", "danger"]
+};
+
+const ALL_HOSTS = /^(<all_urls>|\*:\/\/\*\/\*|https?:\/\/\*\/\*|\*:\/\/\*\/|file:\/\/\/\*)$/;
+
+/** Which store an extension came from, from its update address and install type. */
+export function extensionSource(info) {
+  const u = String(info?.updateUrl || "");
+  if (/clients2\.google\.com\/service\/update2\/crx/.test(u)) return "Chrome Web Store";
+  if (/edge\.microsoft\.com\/extensionwebstorebase/.test(u)) return "Microsoft Edge Add-ons";
+  if (info?.installType === "development") return "Loaded unpacked (developer mode)";
+  if (info?.installType === "sideload") return "Installed by another program on the computer";
+  if (info?.installType === "admin") return "Installed by your organization's policy";
+  if (/addons\.mozilla\.org|mozilla/.test(u) || /@|^\{/.test(String(info?.id || ""))) return "Firefox Add-ons";
+  return u ? `Other (${u.replace(/^https?:\/\//, "").split("/")[0]})` : "Unknown";
+}
+
+/**
+ * Plain-language permissions and warnings for an extension (shown on the computer
+ * and to the support team). info: { id, permissions, hostPermissions, installType, updateUrl }.
+ */
+export function extensionRisk(info) {
+  const perms = [];
+  const flags = [];
+  const seen = new Set();
+  for (const p of (Array.isArray(info?.permissions) ? info.permissions : []).slice(0, 100)) {
+    const key = String(p);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const [text, level] = PERMISSION_INFO[key] || [`“${key}”`, "info"];
+    perms.push({ name: key, text, level });
+  }
+  const hosts = (Array.isArray(info?.hostPermissions) ? info.hostPermissions : []).map(String).slice(0, 100);
+  const allSites = hosts.some(h => ALL_HOSTS.test(h));
+  if (allSites) perms.unshift({ name: "<all_urls>", text: PERMISSION_INFO["<all_urls>"][0], level: "warn" });
+  else if (hosts.length) perms.unshift({ name: "sites", text: `Read and change ${hosts.length === 1 ? "one website" : `${hosts.length} websites`}: ${hosts.slice(0, 5).join(", ")}${hosts.length > 5 ? "…" : ""}`, level: "info" });
+  const danger = perms.filter(p => p.level === "danger");
+  if (danger.length) {
+    flags.push({ level: "danger", code: "ext-powerful", text: `Powerful permissions: ${danger.map(p => p.name).join(", ")}. Scam and spy extensions ask for these.` });
+  }
+  if (allSites && perms.some(p => ["scripting", "webRequest", "tabs", "cookies"].includes(p.name))) {
+    flags.push({ level: "warn", code: "ext-all-sites", text: "Can read and change every website, including banking and email." });
+  }
+  if (info?.installType === "sideload" || info?.installType === "development") {
+    flags.push({ level: "danger", code: "ext-outside-store", text: info.installType === "sideload"
+      ? "Installed by another program, not from a store. Unwanted software installs extensions this way."
+      : "Loaded unpacked (developer mode), not from a store. Only allow it if you know who made it." });
+  }
+  return { perms, flags };
+}
+
 export function normalizeFor(kind, value) {
   switch (kind) {
-    case "allow": return normalizeDomain(value, { stripWww: true });
+    case "allow": return normalizeDomain(value, { stripWww: true, allowLocal: true });
     case "deny": return normalizeDomain(value);
     case "mime": return normalizeMime(value);
     case "scam": return normalizeTerm(value);
+    case "extallow":
+    case "extdeny": return normalizeExtId(value);
     default: return null;
   }
 }

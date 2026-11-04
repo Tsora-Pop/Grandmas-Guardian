@@ -46,8 +46,12 @@
     $("reason").textContent = `${host} isn't on your list of allowed websites.`;
   }
 
-  const { helperName = "", helperPhone = "" } =
-    await chrome.storage.local.get(["helperName", "helperPhone"]);
+  const { helperName = "", helperPhone = "", supportServer = null } =
+    await chrome.storage.local.get(["helperName", "helperPhone", "supportServer"]);
+  // Connected to a support team? Then requests go to them, and even always-blocked
+  // sites can be asked about (the team is told why it is blocked).
+  const team = supportServer && supportServer.status === "connected" ? supportServer : null;
+  const canAsk = webUrl && (reason === "allow" || team);
   if (helperName || helperPhone) {
     $("helperBox").hidden = false;
     $("helperName").textContent = helperName || "your helper";
@@ -59,6 +63,12 @@
     }
     $("requestBtn").textContent = `Ask ${helperName || "my helper"} to allow this site`;
   }
+  if (team) {
+    $("requestBtn").textContent = reason === "deny"
+      ? `Ask ${team.orgName || "my support team"} to review this site`
+      : `Ask ${team.orgName || "my support team"} to allow this site`;
+  }
+  if (reason === "deny" && canAsk) $("requestBtn").hidden = false;
 
   // Go back: return to the previous page, or close the tab if there is none.
   $("backBtn").addEventListener("click", async () => {
@@ -73,10 +83,14 @@
   $("requestBtn").addEventListener("click", async () => {
     const res = await chrome.runtime.sendMessage({ type: "requestSite", url: blockedUrl });
     $("requestBtn").disabled = true;
-    $("requestStatus").textContent = res?.ok
-      ? `Request saved. ${helperName || "Your helper"} can approve it in Grandma's Guardian. ` +
-        "Leave this page open: it will tell you when the site is allowed."
-      : (res?.error || "Sorry, that request couldn't be saved.");
+    $("requestStatus").textContent = !res?.ok
+      ? (res?.error || "Sorry, that request couldn't be saved.")
+      : res.sentToTeam
+        ? `Request sent to ${res.teamName || "your support team"}. Leave this page open: it will tell you when they answer.`
+        : team
+          ? "Request saved. It will be sent to your support team as soon as the computer can reach them."
+          : `Request saved. ${helperName || "Your helper"} can approve it in Grandma's Guardian. ` +
+            "Leave this page open: it will tell you when the site is allowed.";
   });
 
   // When the site is approved (usually while this tab is still open), switch the
@@ -86,6 +100,7 @@
     if (shownAllowed) return;
     shownAllowed = true;
     document.querySelector(".block-card").classList.add("allowed");
+    $("warning").hidden = true;
     $("title").textContent = "This site is now allowed";
     const note = $("reason");
     note.className = "allowed-note";
@@ -103,18 +118,27 @@
   }
 
   async function checkAllowed() {
-    if (!webUrl || reason !== "allow" || shownAllowed) return;
+    if (!canAsk || shownAllowed) return;
     try {
       const res = await chrome.runtime.sendMessage({ type: "checkSite", url: webUrl });
-      if (res?.ok && res.allowed) showAllowed();
+      if (!res?.ok) return;
+      if (res.allowed) { showAllowed(); return; }
+      const d = res.teamDecision;
+      if (d && d.status === "denied") {
+        $("requestBtn").hidden = true;
+        $("requestStatus").textContent = `${team?.orgName || "Your support team"} said no` + (d.note ? `: “${d.note}”` : ".");
+      } else if (res.teamPending && !$("requestStatus").textContent) {
+        $("requestBtn").disabled = true;
+        $("requestStatus").textContent = `Waiting for ${team?.orgName || "your support team"} to answer.`;
+      }
     } catch {}
   }
 
-  if (webUrl && reason === "allow") {
+  if (canAsk) {
     // rulesStatus is written right after the browser's blocking rules are updated,
     // so by the time it changes, the new rules are already in force.
     chrome.storage.onChanged.addListener((changes, area) => {
-      if (area === "local" && changes.rulesStatus) checkAllowed();
+      if (area === "local" && (changes.rulesStatus || changes.serverDecisions || changes.serverPending)) checkAllowed();
     });
     checkAllowed(); // e.g. the tab was reopened after the site was approved
   }

@@ -5,8 +5,8 @@
   const $ = id => document.getElementById(id);
   const id = new URLSearchParams(location.search).get("id") || "";
 
-  const [{ blockedDownloads = [], helperName = "", helperPhone = "" }, lib] = await Promise.all([
-    chrome.storage.local.get(["blockedDownloads", "helperName", "helperPhone"]),
+  const [{ blockedDownloads = [], helperName = "", helperPhone = "", supportServer = null }, lib] = await Promise.all([
+    chrome.storage.local.get(["blockedDownloads", "helperName", "helperPhone", "supportServer"]),
     import("./lib.js")
   ]);
   const d = blockedDownloads.find(e => e.id === id);
@@ -66,7 +66,9 @@
   }
   const who = helperName || "your helper";
   const Who = who[0].toUpperCase() + who.slice(1);
-  const asker = helperName || "my helper";
+  const team = supportServer && supportServer.status === "connected" ? supportServer : null;
+  const teamName = team?.orgName || "your support team";
+  const asker = team ? (team.orgName || "my support team") : (helperName || "my helper");
   $("requestBtn").textContent = plan.basis === "unknown"
     ? `Ask ${asker} to allow unknown files`
     : plan.basis === "extension"
@@ -105,12 +107,16 @@
     const res = await chrome.runtime.sendMessage({ type: "requestMime", id });
     if (res?.ok && res.nowAllowed) { check(); return; }
     if (res?.ok && res.mimes?.length) showTypes(res.mimes);
-    $("requestStatus").textContent = res?.ok
-      ? (res.alreadyRequested
-        ? `This has already been requested. ${Who} can approve it in Grandma's Guardian.`
-        : `Request saved. ${Who} can approve it in Grandma's Guardian. ` +
-          "Leave this page open: it will tell you when you can download the file.")
-      : (res?.error || "Sorry, that request couldn't be saved.");
+    $("requestStatus").textContent = !res?.ok
+      ? (res?.error || "Sorry, that request couldn't be saved.")
+      : res.sentToTeam
+        ? `Request sent to ${res.teamName || teamName}. Leave this page open: it will tell you when they answer.`
+        : team
+          ? "Request saved. It will be sent to your support team as soon as the computer can reach them."
+          : res.alreadyRequested
+            ? `This has already been requested. ${Who} can approve it in Grandma's Guardian.`
+            : `Request saved. ${Who} can approve it in Grandma's Guardian. ` +
+              "Leave this page open: it will tell you when you can download the file.";
     if (!res?.ok) $("requestBtn").disabled = false;
   });
 
@@ -163,14 +169,18 @@
       if (res.allowed) { showAllowed(); return; }
       // Only list what still needs allowing (some types for this extension may be allowed already).
       if (res.mimes?.length) showTypes(res.mimes);
-      if (res.pending && !$("requestStatus").textContent) {
+      const d = res.teamDecision;
+      if (d && d.status === "denied") {
+        $("requestBtn").hidden = true;
+        $("requestStatus").textContent = `${team?.orgName || "Your support team"} said no` + (d.note ? `: “${d.note}”` : ".");
+      } else if ((res.pending || res.teamPending) && !$("requestStatus").textContent) {
         $("requestBtn").disabled = true;
-        $("requestStatus").textContent = `Waiting for ${who} to approve this.`;
+        $("requestStatus").textContent = `Waiting for ${team ? teamName : who} to approve this.`;
       }
     } catch {}
   }
   chrome.storage.onChanged.addListener((changes, area) => {
-    if (area === "local" && (changes.effectiveMimeTypes || changes.mimeFilteringEnabled)) check();
+    if (area === "local" && (changes.effectiveMimeTypes || changes.mimeFilteringEnabled || changes.serverDecisions || changes.serverPending)) check();
   });
   check();
 })();

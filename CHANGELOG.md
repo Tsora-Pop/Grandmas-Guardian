@@ -1,5 +1,159 @@
 # Changelog
 
+## 2.7.0: only allowed browser extensions
+
+### Extension (Chrome, Edge and other Chromium browsers, and Firefox)
+
+- **New: extension allowlisting** (Extensions tab), the same approach as websites:
+  - **Allowed list and always-blocked list** of extension IDs. Entries can be added by hand, from a store address, by `.txt` import, or from online lists. A default always-blocked list (remote-control extensions) is in `lists/extension/denyDefault.txt`; publish it to `LIST_BASE/extension/denyDefault.txt`.
+  - **Turning it on** needs the optional `management` permission (asked once, when the switch is clicked). Extensions already installed are kept and listed for review.
+  - **Any other extension is turned off** when it's installed or switched on, including if it's switched back on by hand. A new page (`extensionblocked.html`) shows its name, source, version, ID and what it can do in plain words, with **Ask to allow**, **Remove it** and **Close**.
+  - **Always-blocked extensions** stay off even when allowed; only a support team can make an exception.
+  - **Requests and logs** carry the name, ID, version, description, source (Chrome Web Store, Edge Add-ons, Firefox Add-ons, unpacked, installed by another program, policy), permissions and websites, plus warnings for powerful permissions, every-site access, and installs from outside a store. They're logged locally (Activity → Extensions, CSV/JSON export), forwarded to the collector, and sent to the support team.
+  - **Never touched:** Grandma's Guardian, themes, extensions installed by policy. Turning the feature off switches back on what it switched off.
+  - **Firefox** can only switch add-ons off when Grandma's Guardian is installed by enterprise policy. Otherwise it detects, warns (once a day per add-on), logs and requests, and tells the person how to remove the add-on.
+- New files: `extguard.js`, `extensionblocked.html`, `extensionblocked.js`, `lists/extension/`.
+- Existing installs get the default always-blocked extensions list once (removing it sticks).
+
+### Guardian Support server
+
+- **Extension requests:** a new request kind with all the details above, shown as text. Permissions are listed in plain words, and powerful ones are marked. Approving a powerful extension needs a reason; approving an always-blocked one lifts that block (`extunblock`).
+- **Approved list:** extensions show up there and can be pushed by ID or store address to every computer or chosen ones. They sync to computers as `extAllow` and `extUnblock`.
+- New two-person option: "browser extensions with powerful permissions, or installed outside a store".
+- The audit log records extension requests with their ID, version, source and permissions.
+- Database migration 5 rebuilds the `requests` and `rules` tables to add the new kinds. Data is preserved and foreign keys are checked afterwards.
+- Server tests: 40.
+
+## 2.6.2: security review (OWASP)
+
+The extension was reviewed against the OWASP Browser Extension Vulnerabilities Cheat Sheet and the server against the OWASP Web Service Security Cheat Sheet. Item-by-item results are in `SECURITY-REVIEW.md`.
+
+### Extension (Chrome, Edge and other Chromium browsers, and Firefox)
+
+- **Strict Content Security Policy** in both manifests. `frame-ancestors 'none'` stops websites from embedding the block page (checked in Chromium: before this, a site could frame it and trick clicks on "Ask to allow").
+- **Online lists must use HTTPS** (plain HTTP only for `localhost`). Addresses with passwords, `file:` addresses, and redirects to non-HTTPS addresses are refused. Lists are read with a hard 25 MB limit instead of loading the whole reply first.
+- **The collector's Authorization header moved out of `chrome.storage.local`** (readable by content scripts) into the extension's own IndexedDB (`secrets.js`, new file). Existing values move automatically. The settings page no longer shows it back: type a new value to replace it, or use **Remove the saved header**.
+- **`topSites` is now optional,** asked for only when "Add most-visited websites" is clicked.
+- **`externally_connectable` declared empty** (Chrome): no other extension or website can message it.
+- The collector and support-server requests no longer follow redirects.
+- The scam notice no longer uses `innerHTML`.
+
+### Guardian Support server
+
+- **Password re-confirmation for sensitive changes,** within 10 minutes of typing it:
+  - payments (plan changes, cancelling, the payment portal);
+  - where logs are forwarded;
+  - adding people or changing roles;
+  - security settings;
+  - approving a password reset;
+  - the owner's organization and plan changes.
+
+  The console shows a password dialog when needed.
+- **Encryption at rest** for two-step secrets and organization collector credentials. They use AES-256-GCM, are bound to their user or organization, and use a key file (`SECRETS_KEY_FILE`, created on first start) kept outside the database. Existing values are encrypted on start. Back up the key separately.
+- **Client address behind a proxy:** the last `X-Forwarded-For` entry (the one the proxy added) is used, not the first (which the client can forge).
+- **JSON only:** request bodies need `Content-Type: application/json` (415 otherwise) and must be objects.
+- **Origin check:** over HTTPS, only `PUBLIC_URL` is accepted as Origin.
+- Malformed `%`-escapes and cookies get a 400 instead of a server error.
+- `Cross-Origin-Resource-Policy: same-origin`.
+- **Limits:**
+  - total connections (`MAX_CONNECTIONS`);
+  - at most 8 live-update connections per person;
+  - keep-alive timeout;
+  - header count;
+  - systemd resource limits in the README's service file.
+- `OWNER_ALLOWED_IPS` optionally limits server-owner pages to known addresses.
+- Database migration 4 (`sessions.auth_at`). Server tests: 38.
+
+## 2.6.1
+
+### Extension (Chrome, Edge and other Chromium browsers, and Firefox)
+
+- **`localhost` can be allowed.** `localhost` and `127.0.0.1` (any port) can now be added to the allowed websites, so developers don't switch protection off to reach local sites. They still can't land on the always-block list (hosts-file lists contain `127.0.0.1 localhost`).
+- **Browser account reported when connecting to a support team,** for per-browser licensing: the browser's name, computer or phone/tablet, and a random ID stored in the browser's synced extension storage (shared by the same browser account on all its computers). `platform.js` gains `browserIdentity()`. No new permissions (`storage` covers synced storage).
+
+### Guardian Support server
+
+- **Licenses are per browser account, not per computer.** The same browser signed in to the same account counts once on all its computers; another browser, or a phone or tablet, is another license. Extensions before 2.6.1 count one license each. The Computers page is now **Browsers**, shows licenses in use, and which browsers share a license. A new **"Another computer for a browser account that's already connected"** code adds a computer without using a license (only that account can use it).
+- **The server owner picks the plan when creating an organization,** from the same plans and prices as sign-up. The admin pays under Billing on first sign-in. The owner can change the plan until it's paid.
+- **Complimentary plans removed.** Existing ones move to the smallest plan that fits and need payment (logged). On a server without payments, organizations are active with their plan's licenses.
+- Plan wording everywhere is "browser licenses". API: `price` objects have `licenses` instead of `computers`; `POST /api/orgs` takes `units`; `PUT /api/orgs/:org/plan` takes `units`.
+- Owner-created organizations aren't removed when unpaid (only abandoned self-service sign-ups are).
+- Server tests: 29.
+
+## 2.6.0
+
+### Firefox version
+
+Grandma's Guardian now runs in **Firefox 140+** and **Firefox for Android 142+**, built from the same code as the Chrome version (`node tools/build.mjs` makes both store zips). The add-on ID is `grandmas-guardian@tsora-pop.github.io`. Differences, all handled in the new `platform.js`:
+
+- **Downloads:** Firefox can't hold a download while it's checked (no `downloads.onDeterminingFilename`). Disallowed downloads are cancelled as soon as they start, the partial file is deleted (`downloads.removeFile`) and the entry erased. For a moment part of the file may exist on disk.
+- **Data-sharing consent:** Firefox's required `data_collection_permissions` are declared as *none required*. The support team and log forwarding are optional and ask for Firefox's permission when turned on (browsing activity and personally identifying information; log forwarding also website content). Without that permission, nothing is sent.
+- **Website access:** if the person turns off the add-on's website access in Firefox, the popup says **Website protection is OFF** with an **Allow** button.
+- **Private windows:** add-ons can't open Firefox's add-ons page, so the popup and setup guide give the steps instead of a button.
+- **Policy settings:** via Firefox `policies.json` `3rdparty.Extensions` (see README). Firefox for Android has no policy settings.
+- **Log export:** uses a `blob:` link in Firefox.
+
+### Chrome version
+
+- Version 2.6.0. New file `platform.js` (in the store zip). No new permissions; behaviour in Chrome is unchanged.
+- The "most visited" button tolerates browsers without `topSites`.
+
+### Guardian Support server
+
+- **Self-service sign-up with payments (Stripe).** New organizations sign up and pay $1/month for 10 computers; each extra $1 adds 20 (configurable). Debit/credit cards, Google Pay and Apple Pay through Stripe Checkout; card details never reach the server. When a plan is full, adding a computer offers the next plan with one-click upgrade. Admins can change the plan, **cancel future payments** (and undo), and open Stripe's billing portal. Local test mode: `PAYMENTS=dev`. Without payment settings, the owner creates **complimentary** organizations with a computer limit, as before.
+- **Forgot password,** approved by people: the request goes to the organization's admins (or the other admin), or to the server owner when no admin can help or the person asks. The approver checks a 6-digit code shown on the person's screen. Approvers get a live alert, notification and **Password resets** badge. The owner (or anyone, in an emergency) can be reset from the command line: `node server.js reset-password <email>`.
+- **Log forwarding** of the audit log, server-wide (`FORWARD_URL`) and per organization (Settings): HTTPS with optional custom CA and mutual TLS, credentials in a write-only header, private-network addresses blocked for organization collectors, a persistent queue with exponential backoff and jitter, batches, stable event IDs and hash-chain fields for verification. NDJSON, JSON or Splunk HEC.
+- **Monthly audit rotation:** the live log keeps the current month; earlier months are sealed into compressed archives with recorded hashes (12 months kept by default). The hash chain and the integrity check span the archives. Admins and auditors download archived months as CSV or NDJSON. The console encourages forwarding.
+- **Approved list:** search and filters to remove an accidental approval quickly; **Apply to every computer** for a one-computer approval; **Add approvals directly** to push websites or file types to every computer or chosen ones (same safeguards: lookalike confirmation, reasons, two-person rule).
+- Database upgrades in place (migration 2); existing organizations become complimentary with a limit of at least 10 computers.
+- Server tests: 27 (was 14).
+
+## 2.5.0
+
+### Connect to a support team (Guardian Support server)
+
+Requests to allow a website or a kind of file can now go to a support team, who approve them from their phone or computer. The server is new, self-hosted, and included in this repository under `server/`; see `server/README.md`. No third-party service is involved.
+
+**Where to connect.** Setup guide **step 2, "Connect to a support team (optional)"**: pressing **Next** skips it. Later: **Settings → Support team**. Enter the server address and the one-time connection code an admin creates in the console (**Computers → Create connection code**). The computer's name defaults to "<person>'s computer".
+
+**What changes when connected:**
+- **"Ask to allow"** on the block page and the Download stopped page sends the request to the team (it is also kept on the computer, as before). The page says it went to the team, shows **Waiting for <team>** while it's open, and shows **<team> said no: "<reason>"** if they deny it.
+- **Always-blocked sites can be requested** (only when connected). The scam warning stays, and the button reads **Ask <team> to review this site**. The team is told which always-block entry and list blocked the site. Without a team, always-blocked sites still can't be requested or allowed on the computer.
+- **What the team approves is applied automatically:**
+  - websites and file types are added to what's allowed (kept separate from entries added on the computer);
+  - always-block approvals remove that entry from the always-block rules. If the blocking entry is a parent domain, a higher-priority exception allows just the approved site: approving `my.anydesk.com` leaves `anydesk.com` blocked.
+  - approvals the team removes disappear on the next check.
+- **Checking with the server:** every minute while anything is waiting, otherwise every 15 minutes, and when the browser starts. Requests made while offline are sent on the next check. Decided requests are removed from the popup's request lists. Decisions are recorded in **Activity → Changes**.
+- **The helper on the computer can still approve** websites and file types in the popup as before, but can't lift the always-block list. Only the team can.
+- **Disconnecting:** if the team disconnects the computer, its approvals stop applying and Settings says so; reconnecting needs a new code. Disconnecting from the computer (two clicks) tells the server, removes the team's approvals, and deletes the computer's key.
+
+**Security:**
+- **Device key:** on connecting, the computer creates its own ECDSA P-256 key. The private key is created non-extractable and kept in the extension's IndexedDB, so it can sign but can't be read out.
+- **Signed calls:** every call to the server is signed (method, path, time, one-time nonce, body hash). A copied device ID is useless without the key, and the server rejects replays and requests more than 5 minutes off.
+- **HTTPS only,** except `localhost` and `127.0.0.1` for testing. Server addresses with a user name or password are refused.
+- **What's sent:** only the requests themselves. Site requests carry the domain, the address, and the always-block entry if any. File requests carry the type(s), extension, file name, and download address. Connecting also sends the computer's name, the person's name, and the extension version. Browsing history and scam-word activity are never sent.
+- **Who can connect it:** only the settings page can connect, disconnect, or sync. Web pages and the block and download pages can't.
+
+**New permissions:** none. Server requests use the existing `<all_urls>` host access.
+
+### Files
+
+| File | Change |
+|---|---|
+| `support.js` | **New:** device key (IndexedDB), enrollment, signed calls |
+| `background.js` | Team lists in the effective lists, always-block exceptions (rules and checks), sending requests, sync with adaptive timing, connect/disconnect, decisions to block/download pages |
+| `popup.html`, `popup.js` | Setup step 2 and the **Support team** card in Settings |
+| `blockpage.js`, `downloadblocked.js` | Team wording, always-blocked requests when connected, waiting/denied status |
+| `manifest.json` | 2.5.0 |
+| `server/` | **New:** the Guardian Support server and console |
+| `tests/support.e2e.test.mjs` | **New:** 33 checks of the extension and server together |
+
+### Publishing notes
+
+- **Store package:** must include the new `support.js` (the zip command in `STORE-SUBMISSION.md` is updated). Do **not** include `server/` or `tests/`.
+- **Privacy:** the extension can now send request details to a support server the user connects to. `Privacy-Policy.md` and the data-use answers in `STORE-SUBMISSION.md` are updated.
+- **Store review:** code change, so leave "skip review" unchecked. No new permissions.
+
 ## 2.4.0
 
 ### Files sent as "unknown type" are judged by their extension

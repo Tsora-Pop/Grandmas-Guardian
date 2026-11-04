@@ -1,8 +1,9 @@
 // popup.js — popup, full-tab settings page and first-install setup guide.
 import {
   DEFAULT_SETTINGS, DEFAULT_SUBSCRIPTIONS, KIND_LABELS, MANAGED_SETTING_KEYS, MANUAL_KEYS, MIME_PRESETS,
-  PROTECTION_KEYS, describeRequest, effectiveSettings, parseList
+  PROTECTION_KEYS, describeRequest, effectiveSettings, extensionRisk, parseList
 } from "./lib.js";
+import { FORWARD_DATA, IS_FIREFOX, SUPPORT_DATA, hasSiteAccess, requestDataConsent, requestSiteAccess } from "./platform.js";
 
 const $ = id => document.getElementById(id);
 const send = (type, data = {}) => chrome.runtime.sendMessage({ type, ...data });
@@ -66,8 +67,8 @@ function ago(ts) {
 const STATE_KEYS = [
   ...Object.keys(DEFAULT_SETTINGS), ...Object.values(MANUAL_KEYS),
   "subscriptions", "effectiveCounts", "blockedLog", "blockedDownloads",
-  "pendingRequests", "pendingMimeRequests", "rulesStatus", "scamLog", "auditLog", "forwardStatus",
-  "forwardQueue", "managedInfo"
+  "pendingRequests", "pendingMimeRequests", "supportServer", "serverPending", "rulesStatus", "scamLog", "auditLog", "forwardStatus",
+  "forwardQueue", "managedInfo", "forwardAuthSet", "pendingExtRequests", "extensionLog", "serverExtAllow", "serverExtUnblock"
 ];
 let state = {};
 let managed = {};
@@ -84,6 +85,7 @@ async function loadState() {
 const tabMode = !!(await chrome.tabs.getCurrent());
 document.body.classList.toggle("tab-mode", tabMode);
 let incognitoAllowed = true;
+let siteAccess = true;
 
 // ---------------------------------------------------------------------------
 // Header, alerts, toggles
@@ -129,9 +131,19 @@ function renderAlerts() {
     box.append(notice("info", "Setup isn't finished yet.",
       h("button", { class: "btn small primary", type: "button", onclick: openSetupTab }, "Open setup")));
   }
+  if (!siteAccess) {
+    box.append(notice("bad", "Website protection is OFF: Firefox isn't letting Grandma's Guardian work on websites.",
+      h("button", { class: "btn small primary", type: "button", onclick: async () => {
+        siteAccess = await requestSiteAccess();
+        if (siteAccess) chrome.runtime.sendMessage({ type: "rebuild" }).catch(() => {});
+        renderAll();
+      } }, "Allow")));
+  }
   if (!incognitoAllowed) {
-    box.append(notice("warn", "Private (Incognito) windows are NOT protected.",
-      h("button", { class: "btn small", type: "button", onclick: openExtensionsPage }, "Fix")));
+    box.append(IS_FIREFOX
+      ? notice("warn", "Private windows are NOT protected. To fix: Firefox menu ☰ → Add-ons and themes → Grandma's Guardian → Run in Private Windows: Allow.")
+      : notice("warn", "Private (Incognito) windows are NOT protected.",
+        h("button", { class: "btn small", type: "button", onclick: openExtensionsPage }, "Fix")));
   }
   if (Object.keys(managed).length) {
     box.append(notice("info", "🔒 Some settings are managed by your organization."));
@@ -180,7 +192,9 @@ const PLACEHOLDERS = {
   allow: "Add a website, e.g. mybank.com",
   deny: "Block a website, e.g. anydesk.com",
   mime: "Add a file type, e.g. application/pdf",
-  scam: "Add a scam phrase, e.g. buy gift cards"
+  scam: "Add a scam phrase, e.g. buy gift cards",
+  extallow: "Add an extension ID or store address",
+  extdeny: "Block an extension ID"
 };
 const SHOW_MAX = 300;
 const editors = {};
@@ -341,7 +355,11 @@ function buildEditor(root) {
 document.querySelectorAll(".editor[data-kind]").forEach(buildEditor);
 
 // Most-visited sites
+// Asked for only when the button is clicked (optional permission), not at install.
 async function topSiteDomains() {
+  let granted = false;
+  try { granted = await chrome.permissions.request({ permissions: ["topSites"] }); } catch {}
+  if (!granted || !chrome.topSites?.get) return []; // declined, or Firefox for Android (no most-visited list)
   const sites = await chrome.topSites.get();
   return sites.map(s => s.url).filter(u => /^https?:/i.test(u));
 }
@@ -458,7 +476,10 @@ const AUDIT_LABELS = {
   protection_on: "Turned on", protection_off: "Turned off", protection_change_blocked: "Kept on (policy)",
   list_changed: "List", subscription_changed: "Online list", site_requested: "Request",
   request_approved: "Allowed", request_dismissed: "Dismissed",
-  mime_requested: "File request", mime_request_approved: "File type allowed", mime_request_dismissed: "Dismissed"
+  mime_requested: "File request", mime_request_approved: "File type allowed", mime_request_dismissed: "Dismissed",
+  setting_changed: "Setting",
+  extension_blocked: "Extension stopped", extension_enabled: "Extension back on", extension_requested: "Extension request",
+  extension_request_approved: "Extension allowed", extension_request_dismissed: "Dismissed"
 };
 function shortHost(u) {
   try { return new URL(u).hostname; } catch { return u || ""; }
@@ -467,6 +488,11 @@ function describeAudit(e) {
   switch (e.type) {
     case "protection_on": case "protection_off": case "protection_change_blocked": return e.label || e.setting;
     case "list_changed": return `${KIND_LABELS[e.kind] || e.kind}: ${e.change} ${e.count}${e.values?.length ? ` (${e.values.slice(0, 3).join(", ")}${e.count > 3 ? "…" : ""})` : ""}`;
+    case "extension_blocked": return `${e.extension?.name || "?"} (${e.reason}${e.stopped ? "" : ", couldn't be turned off"})`;
+    case "extension_enabled": return e.extension?.name || "";
+    case "extension_requested": return `${e.extension?.name || "?"} (${e.extension?.id || ""})`;
+    case "extension_request_approved": case "extension_request_dismissed": return `${e.id} (by ${e.by})`;
+    case "setting_changed": return `Collector authorization header ${e.value === "(removed)" ? "removed" : "changed"}`;
     case "subscription_changed": return `${KIND_LABELS[e.kind] || e.kind || ""} ${e.name || e.url || ""}: ${e.change}`.trim();
     case "site_requested": return e.domain;
     case "request_approved": case "request_dismissed": return `${e.domain} (by ${e.by})`;
@@ -476,6 +502,112 @@ function describeAudit(e) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Extensions tab
+// ---------------------------------------------------------------------------
+const EXT_STATUS = {
+  allow: ["Allowed", ""], block: ["Not allowed", "deny"], deny: ["Always blocked", "deny"],
+  policy: ["Set by your organization", ""], theme: ["Theme", ""], self: ["", ""]
+};
+
+function permLines(perms, max = 6) {
+  const important = perms.filter(p => p.level !== "info");
+  const shown = (important.length ? important : perms).slice(0, max);
+  return h("ul", { class: "perm-list" }, ...shown.map(p => h("li", { class: `perm ${p.level}` }, p.text)),
+    perms.length > shown.length ? h("li", { class: "perm info" }, `and ${perms.length - shown.length} more`) : null);
+}
+
+let extRendering = 0;
+async function renderExtensions() {
+  const run = ++extRendering;
+  // Requests
+  const reqs = state.pendingExtRequests || [];
+  $("extRequestsCard").hidden = !reqs.length;
+  $("extRequestBadge").hidden = !reqs.length;
+  $("extRequestBadge").textContent = String(reqs.length);
+  $("extRequestList").replaceChildren(...reqs.slice().reverse().map(r => {
+    const e = r.extension || {};
+    const risk = extensionRisk(e);
+    const risky = risk.flags.some(f => f.level === "danger");
+    const approve = async () => {
+      const res = await send("approveExtRequest", { id: r.id });
+      if (res?.skippedDenied?.length) editors.extallow.say(`${e.name || r.id} is on the always-blocked list and can't be allowed here.`, true);
+    };
+    return h("div", { class: "rowi" },
+      h("span", { class: "what" },
+        h("strong", {}, e.name || r.id), " ", h("span", { class: "muted small" }, `${e.version || ""} · ${e.source || ""}`),
+        r.denied ? h("span", { class: "tag deny", style: "margin-left:6px" }, "Always blocked") : null,
+        h("span", { class: "excerpt" }, h("code", {}, r.id)),
+        ...risk.flags.map(f => h("span", { class: `excerpt ${f.level === "danger" ? "warn-text" : ""}` }, f.text)),
+        permLines(risk.perms)),
+      h("span", { class: "when" }, ago(r.timestamp)),
+      risky ? confirmButton("Allow", "Allow anyway?", approve, "btn small danger") : h("button", { class: "btn small primary", type: "button", onclick: approve }, "Allow"),
+      h("button", { class: "btn small", type: "button", onclick: () => send("dismissExtRequest", { id: r.id }) }, "Dismiss"));
+  }));
+
+  // On/off and installed extensions
+  const toggle = $("extToggle");
+  const note = $("extNote");
+  let list;
+  try { list = await send("extensionsList"); } catch { list = null; }
+  if (run !== extRendering) return;
+  toggle.checked = !!(list?.enabled && list?.permitted);
+  const notes = [];
+  if (list?.enabled && !list.permitted) notes.push(notice("bad", "Extension protection is on, but the browser's permission to manage extensions was taken away. Turn it off and on again to allow it."));
+  if (IS_FIREFOX && list?.permitted && list.selfInstallType !== "admin") {
+    notes.push(notice("warn", "Firefox only lets Grandma's Guardian turn other add-ons off when your organization installs it by policy. Here it can still spot extensions that aren't allowed, warn, log them and ask your support team, and offer to remove them."));
+  }
+  note.replaceChildren(...notes);
+  const items = (list?.items || []).filter(i => i.decision !== "self");
+  $("extInstalled").replaceChildren(...(!list?.permitted
+    ? [h("div", { class: "empty" }, "Turn this on to see and control the extensions installed in this browser.")]
+    : items.length ? items.map(i => {
+      const [label, cls] = EXT_STATUS[i.decision] || ["", ""];
+      const manual = (state[MANUAL_KEYS.extallow] || []).includes(i.id);
+      const status = i.decision === "allow" ? "Allowed" : !i.enabled ? "Turned off" : label;
+      return h("div", { class: "rowi" },
+        h("span", { class: `tag ${cls}` }, i.decision === "block" || i.decision === "deny" ? (i.enabled ? label : "Turned off") : status),
+        h("span", { class: "what" },
+          h("strong", {}, i.name), " ", h("span", { class: "muted small" }, `${i.version} · ${i.source}`),
+          ...i.flags.filter(f => f.level === "danger").map(f => h("span", { class: "excerpt warn-text" }, f.text)),
+          permLines(i.perms, 3)),
+        i.decision === "block" ? h("button", { class: "btn small", type: "button", onclick: () => editors.extallow.add([i.id], ` (${i.name})`) }, "Allow")
+          : i.decision === "allow" && manual ? h("button", { class: "btn small", type: "button", onclick: () => send("removeManual", { kind: "extallow", value: i.id }) }, "Don't allow")
+          : null);
+    }) : [h("div", { class: "empty" }, "No other extensions are installed.")]));
+
+  // Activity log
+  const log = (state.extensionLog || []).slice(-100).reverse();
+  $("extensionLogList").replaceChildren(...(log.length ? log.map(e => h("div", { class: "rowi" },
+    h("span", { class: `tag ${e.action === "requested" ? "" : "deny"}` },
+      e.action === "requested" ? "Requested" : e.stopped === false ? "Couldn't turn off" : e.action === "always-blocked" ? "Always blocked" : "Turned off"),
+    h("span", { class: "what" }, h("strong", {}, e.name), " ", h("span", { class: "muted small" }, `${e.version || ""} · ${e.source || ""} · ${e.id}`),
+      h("span", { class: "excerpt" }, `Permissions: ${[...(e.permissions || []), ...(e.hostPermissions || [])].join(", ") || "none"}`)),
+    h("span", { class: "when" }, ago(e.timestamp)))) : [h("div", { class: "empty" }, "No extensions stopped yet.")]));
+}
+
+$("extToggle").addEventListener("change", async e => {
+  const on = e.target.checked;
+  if (on) {
+    // The permission prompt must come first, during the click.
+    let granted = false;
+    try { granted = await chrome.permissions.request({ permissions: ["management"] }); } catch {}
+    if (!granted) {
+      e.target.checked = false;
+      $("extNote").replaceChildren(notice("warn", "Not turned on: the browser's permission to manage extensions wasn't given."));
+      return;
+    }
+    const r = await send("extensionsTurnOn");
+    $("extNote").replaceChildren(notice(r?.ok ? "ok" : "bad", r?.ok
+      ? `On. ${r.keptAllowed ? `${r.keptAllowed} extension${r.keptAllowed === 1 ? " that was" : "s that were"} already installed ${r.keptAllowed === 1 ? "was" : "were"} added to the allowed list; review below.` : "Review the installed extensions below."}`
+      : (r?.error || "Couldn't turn it on.")));
+  } else {
+    const r = await send("extensionsTurnOff");
+    $("extNote").replaceChildren(notice("info", `Off.${r?.restored ? ` ${r.restored} extension${r.restored === 1 ? " was" : "s were"} switched back on.` : ""}`));
+  }
+  renderExtensions();
+});
+
 // ---------- export ----------
 function exportRows() {
   const rows = [];
@@ -483,6 +615,10 @@ function exportRows() {
   for (const e of state.blockedDownloads || []) rows.push({ time: e.timestamp, type: "download_blocked", detail: e.filename, extra: `${e.mimeType} from ${e.sourceUrl}` });
   for (const e of state.scamLog || []) rows.push({ time: e.timestamp, type: e.action === "revealed" ? "scam_text_revealed" : "scam_text_hidden", detail: e.term, extra: `${e.url} | ${e.excerpt || ""}` });
   for (const e of state.auditLog || []) rows.push({ time: e.time, type: e.type, detail: describeAudit(e), extra: e.by || "" });
+  for (const e of state.extensionLog || []) {
+    rows.push({ time: e.timestamp, type: `extension_${e.action.replace(/[^a-z]+/g, "_")}`, detail: `${e.name} (${e.id}) ${e.version || ""}`.trim(),
+      extra: `${e.source || ""} | permissions: ${(e.permissions || []).join(" ")} | sites: ${(e.hostPermissions || []).join(" ")}` });
+  }
   rows.sort((a, b) => String(a.time).localeCompare(String(b.time)));
   return rows;
 }
@@ -504,12 +640,16 @@ async function exportLog(kind) {
     data = JSON.stringify({
       exported: new Date().toISOString(), person: setting("personName") || null, version: chrome.runtime.getManifest().version,
       blockedSites: state.blockedLog || [], blockedDownloads: state.blockedDownloads || [],
-      scamText: state.scamLog || [], changes: state.auditLog || []
+      scamText: state.scamLog || [], extensions: state.extensionLog || [], changes: state.auditLog || []
     }, null, 2);
     type = "application/json"; ext = "json";
   }
-  // A data: URL survives the popup closing while the download starts.
-  const url = `data:${type};charset=utf-8,${encodeURIComponent(data)}`;
+  // Chrome: a data: URL survives the popup closing while the download starts.
+  // Firefox doesn't download data: URLs from extensions, so a blob: URL is used there.
+  const url = IS_FIREFOX
+    ? URL.createObjectURL(new Blob([data], { type: `${type};charset=utf-8` }))
+    : `data:${type};charset=utf-8,${encodeURIComponent(data)}`;
+  if (IS_FIREFOX) setTimeout(() => URL.revokeObjectURL(url), 60000);
   try {
     await chrome.downloads.download({ url, filename: `${base}.${ext}`, saveAs: false });
     $("exportStatus").textContent = `Saved ${base}.${ext} to Downloads (${rows.length} entries).`;
@@ -525,7 +665,7 @@ document.querySelectorAll("[data-clear]").forEach(b => b.addEventListener("click
 // ---------------------------------------------------------------------------
 // Settings tab
 // ---------------------------------------------------------------------------
-const TEXT_SETTINGS = ["helperName", "helperPhone", "personName", "forwardUrl", "forwardAuth", "forwardFormat"];
+const TEXT_SETTINGS = ["helperName", "helperPhone", "personName", "forwardUrl", "forwardFormat"];
 function renderSettings() {
   for (const id of TEXT_SETTINGS) {
     const el = $(id);
@@ -533,6 +673,12 @@ function renderSettings() {
     el.disabled = isManaged(id);
     if (el.disabled) el.title = "Set by your organization";
   }
+  // The Authorization header is never shown back (it's a credential); it can be replaced or removed.
+  const authField = $("forwardAuth");
+  authField.disabled = isManaged("forwardAuth");
+  authField.placeholder = isManaged("forwardAuth") ? "Set by your organization (hidden)"
+    : state.forwardAuthSet ? "Saved (hidden). Type a new value to replace it." : "e.g. Bearer abc123";
+  $("clearForwardAuth").hidden = !state.forwardAuthSet || isManaged("forwardAuth");
   $("forwardEnabled").checked = !!setting("forwardEnabled");
   $("forwardEnabled").disabled = isManaged("forwardEnabled");
   $("forwardDetails").hidden = !setting("forwardEnabled");
@@ -545,7 +691,9 @@ function renderSettings() {
   }
   $("incognitoStatus").textContent = incognitoAllowed
     ? "✅ Private windows are protected."
-    : "⚠ Private windows are NOT protected. Open extension settings and turn on “Allow in Incognito”.";
+    : IS_FIREFOX
+      ? "⚠ Private windows are NOT protected. In Firefox: menu ☰ → Add-ons and themes → Grandma's Guardian → Run in Private Windows: Allow."
+      : "⚠ Private windows are NOT protected. Open extension settings and turn on “Allow in Incognito”.";
   $("version").textContent = `Version ${chrome.runtime.getManifest().version}`;
 }
 
@@ -577,22 +725,103 @@ function flash(id, text) {
   setTimeout(() => { delete el.dataset.busy; }, 4000);
 }
 // ---------- log forwarding ----------
-$("forwardEnabled").addEventListener("change", e => chrome.storage.local.set({ forwardEnabled: e.target.checked }));
+$("forwardEnabled").addEventListener("change", async e => {
+  // Firefox: ask before anything is sent (must be the first await in the click).
+  if (e.target.checked && !(await requestDataConsent(FORWARD_DATA))) {
+    e.target.checked = false;
+    return flash("forwardStatusText", "Forwarding stays off: Firefox's permission to send this data wasn't given.");
+  }
+  chrome.storage.local.set({ forwardEnabled: e.target.checked });
+});
 $("saveForward").addEventListener("click", async () => {
+  if ($("forwardEnabled").checked && !(await requestDataConsent(FORWARD_DATA))) return flash("forwardStatusText", "Firefox's permission to send this data wasn't given.");
   const url = $("forwardUrl").value.trim();
   if (url && !/^https:\/\//i.test(url)) return flash("forwardStatusText", "The collector address must start with https://");
   const patch = {};
   if (!isManaged("forwardUrl")) patch.forwardUrl = url;
-  if (!isManaged("forwardAuth")) patch.forwardAuth = $("forwardAuth").value.trim();
   if (!isManaged("forwardFormat")) patch.forwardFormat = $("forwardFormat").value;
   await chrome.storage.local.set(patch);
+  const auth = $("forwardAuth").value.trim();
+  if (auth && !isManaged("forwardAuth")) {
+    const r = await send("setForwardAuth", { value: auth });
+    if (!r?.ok) return flash("forwardStatusText", r?.error || "Couldn't save the header.");
+    $("forwardAuth").value = "";
+  }
   flash("forwardStatusText", "Saved.");
 });
+$("clearForwardAuth").addEventListener("click", async () => {
+  const r = await send("setForwardAuth", { value: "" });
+  flash("forwardStatusText", r?.ok ? "Header removed." : (r?.error || "Couldn't remove it."));
+});
 $("testForward").addEventListener("click", async () => {
+  if (!(await requestDataConsent(FORWARD_DATA))) return flash("forwardStatusText", "Firefox's permission to send this data wasn't given.");
   flash("forwardStatusText", "Sending…");
   const res = await send("testForward");
   flash("forwardStatusText", res?.ok ? "Test event delivered." : (res?.error || "Couldn't deliver."));
 });
+
+// ---------- support team (Guardian Support server) ----------
+function renderSupport(box, { inSetup = false } = {}) {
+  if (!box) return;
+  const st = state.supportServer;
+  const connected = st && st.status === "connected";
+  // Don't wipe what someone is typing.
+  if (!connected && box.dataset.mode === "form" && box.contains(document.activeElement)) return;
+  box.dataset.mode = connected ? "status" : "form";
+  const title = inSetup ? null : h("h2", {}, "Support team");
+  if (connected) {
+    const waiting = (state.serverPending || []).length;
+    const status = h("p", { class: "muted small", role: "status" },
+      st.lastError ? `⚠ ${st.lastError}` : st.lastSync ? `Last checked ${ago(st.lastSync)}.` : "Connecting…",
+      waiting ? ` ${waiting} request${waiting > 1 ? "s" : ""} waiting for the team.` : "");
+    box.replaceChildren(...[title,
+      h("div", { class: "notice ok" }, h("span", {}, "✅ Connected to ", h("strong", {}, st.orgName || "the support team"),
+        st.deviceName ? ` as “${st.deviceName}”` : "", ".")),
+      h("p", { class: "small" }, "Requests to allow a website or a kind of file go to this team. What they approve is added here automatically."),
+      h("p", { class: "muted small" }, "Server: ", h("code", {}, st.server)),
+      status,
+      inSetup ? null : h("div", { class: "row gap wrap" },
+        h("button", { class: "btn small", type: "button", onclick: async e => {
+          e.target.disabled = true;
+          const r = await send("supportSync");
+          e.target.disabled = false;
+          if (!r?.ok) status.textContent = `⚠ ${r?.error || "Couldn't reach the server."}`;
+        } }, "↻ Check now"),
+        confirmButton("Disconnect", "Click again: team approvals will be removed", () => send("supportDisconnect")))
+    ].filter(Boolean));
+    return;
+  }
+  const revoked = st && st.status === "revoked";
+  const server = h("input", { type: "url", placeholder: "https://support.example.org", "aria-label": "Server address", autocomplete: "off" });
+  const code = h("input", { type: "text", placeholder: "ABCD-EFGH-JKLM", "aria-label": "Connection code", autocomplete: "off", autocapitalize: "characters", spellcheck: "false" });
+  const name = h("input", { type: "text", maxlength: "80", "aria-label": "This computer's name", value: setting("personName") ? `${setting("personName")}'s computer` : "" });
+  const fb = h("p", { class: "feedback", role: "status" });
+  const btn = h("button", { class: "btn primary", type: "button" }, "Connect");
+  btn.addEventListener("click", async () => {
+    // Firefox: the data-sharing prompt must come first, during the click.
+    if (!(await requestDataConsent(SUPPORT_DATA))) {
+      fb.textContent = "Not connected: Firefox's permission to share requests with the support team wasn't given.";
+      fb.classList.add("bad");
+      return;
+    }
+    fb.textContent = "Connecting…";
+    fb.classList.remove("bad");
+    btn.disabled = true;
+    const r = await send("supportConnect", { serverUrl: server.value, code: code.value, name: name.value });
+    btn.disabled = false;
+    fb.textContent = r?.ok ? `Connected to ${r.orgName}.` : (r?.error || "Couldn't connect.");
+    fb.classList.toggle("bad", !r?.ok);
+    if (r?.ok) { box.dataset.mode = ""; await loadState(); renderSupport(box, { inSetup }); }
+  });
+  box.replaceChildren(...[title,
+    revoked ? h("div", { class: "notice warn" }, h("span", {}, "This computer was disconnected by the support team. Ask them for a new connection code to reconnect.")) : null,
+    inSetup ? null : h("p", { class: "muted small" }, "Connect to a Guardian Support server so a team can approve requests from their phone or computer. They give you the server address and a one-time connection code."),
+    h("label", { class: "field" }, "Server address", server),
+    h("label", { class: "field" }, "Connection code", code),
+    h("label", { class: "field" }, "Name for this computer", name),
+    h("div", { class: "row gap" }, btn), fb
+  ].filter(Boolean));
+}
 
 function openExtensionsPage() {
   chrome.tabs.create({ url: `chrome://extensions/?id=${chrome.runtime.id}` });
@@ -614,12 +843,24 @@ async function checkIncognito() {
   } catch {
     incognitoAllowed = true;
   }
+  siteAccess = await hasSiteAccess();
+}
+
+// Firefox words things differently.
+if (IS_FIREFOX) {
+  document.documentElement.classList.add("firefox");
+  // Firefox doesn't let extensions open about:addons, so the steps are written out instead.
+  for (const id of ["openExtPage", "setupOpenExt"]) { const b = $(id); if (b) b.hidden = true; }
+  const p = document.querySelector("#setupIncognitoBad > p");
+  if (p) p.replaceChildren("Firefox turns extensions ", h("strong", {}, "off"), " in private windows unless you allow it. Scammers know this.");
+  const steps = document.querySelector("#setupIncognitoBad .howto");
+  if (steps) steps.replaceChildren(...["Open the Firefox menu ☰ → Add-ons and themes.", "Click Grandma's Guardian.", "Under “Run in Private Windows”, choose Allow.", "Come back here and click Check again."].map(t => h("li", {}, t)));
 }
 
 // ---------------------------------------------------------------------------
 // First-time setup guide
 // ---------------------------------------------------------------------------
-const STEPS = 5;
+const STEPS = 6;
 let step = 1;
 
 function showSetup(show) {
@@ -643,23 +884,24 @@ function renderSetup() {
   $("setupBack").hidden = step === 1;
   $("setupNext").textContent = step === STEPS ? "Finish" : "Next";
 
+  if (step === 2) renderSupport($("setupSupport"), { inSetup: true });
   if (step === 1) {
     $("setupHelperName").value = setting("helperName") || "";
     $("setupHelperPhone").value = setting("helperPhone") || "";
     $("setupPersonName").value = setting("personName") || "";
   }
-  if (step === 2) {
+  if (step === 3) {
     renderSetupToggles();
     const c = state.effectiveCounts;
     $("setupListStatus").textContent = c && (c.allow || c.mime || c.scam)
       ? `Lists loaded: ${c.allow} websites, ${c.deny} always-blocked sites, ${c.mime} file types, ${c.scam} scam phrases.`
       : "Downloading the default lists…";
   }
-  if (step === 3) {
+  if (step === 4) {
     const n = (state[MANUAL_KEYS.allow] || []).length;
     $("setupDomainStatus").textContent = n ? `${n} website${n === 1 ? "" : "s"} added so far (plus the default list).` : "";
   }
-  if (step === 4) {
+  if (step === 5) {
     $("setupIncognitoOk").hidden = !incognitoAllowed;
     $("setupIncognitoBad").hidden = incognitoAllowed;
   }
@@ -694,7 +936,7 @@ $("setupNext").addEventListener("click", async () => {
   }
   if (step < STEPS) {
     step++;
-    if (step === 4) await checkIncognito();
+    if (step === 5) await checkIncognito();
     renderSetup();
     return;
   }
@@ -707,12 +949,14 @@ $("setupNext").addEventListener("click", async () => {
 // Render + live updates
 // ---------------------------------------------------------------------------
 function renderAll() {
+  renderExtensions();
   renderHeader();
   renderAlerts();
   renderToggles();
   renderRequests();
   renderLogs();
   renderSettings();
+  renderSupport($("supportCard"));
   Object.values(editors).forEach(e => e.refresh());
 }
 
@@ -723,7 +967,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
   renderTimer = setTimeout(async () => {
     await loadState();
     renderAll();
-    if (!$("setup").hidden && step === 2) renderSetup();
+    if (!$("setup").hidden && (step === 2 || step === 3)) renderSetup();
   }, 100);
 });
 

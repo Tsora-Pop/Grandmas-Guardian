@@ -213,20 +213,26 @@
     const host = document.createElement(BANNER_TAG);
     host.style.cssText = "display:block !important;margin:4px 0 !important;";
     const shadow = host.attachShadow({ mode: "closed" });
-    shadow.innerHTML = `
-      <style>
-        .box{font:14px/1.4 system-ui,-apple-system,"Segoe UI",Arial,sans-serif;background:#fff4e5;
-             color:#663c00;border:1px solid #f0b46c;border-radius:8px;padding:6px 10px;
-             display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-        button{font:inherit;font-size:13px;border:1px solid #c77700;background:#fff;color:#663c00;
-               border-radius:6px;padding:2px 10px;cursor:pointer}
-        button:focus-visible{outline:2px solid #1565c0;outline-offset:2px}
-      </style>
-      <div class="box" role="note">
-        <span>🛡️ Hidden by Grandma's Guardian: this may be a scam.</span>
-        <button type="button">Show anyway</button>
-      </div>`;
-    shadow.querySelector("button").addEventListener("click", e => {
+    // Built with DOM calls and static text only (no innerHTML).
+    const style = document.createElement("style");
+    style.textContent =
+      ".box{font:14px/1.4 system-ui,-apple-system,\"Segoe UI\",Arial,sans-serif;background:#fff4e5;" +
+      "color:#663c00;border:1px solid #f0b46c;border-radius:8px;padding:6px 10px;" +
+      "display:flex;gap:10px;align-items:center;flex-wrap:wrap}" +
+      "button{font:inherit;font-size:13px;border:1px solid #c77700;background:#fff;color:#663c00;" +
+      "border-radius:6px;padding:2px 10px;cursor:pointer}" +
+      "button:focus-visible{outline:2px solid #1565c0;outline-offset:2px}";
+    const box = document.createElement("div");
+    box.className = "box";
+    box.setAttribute("role", "note");
+    const label = document.createElement("span");
+    label.textContent = "🛡️ Hidden by Grandma's Guardian: this may be a scam.";
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.textContent = "Show anyway";
+    box.append(label, btn);
+    shadow.append(style, box);
+    btn.addEventListener("click", e => {
       if (!e.isTrusted) return; // only a real click by the person counts
       target.removeAttribute(HIDDEN);
       target.setAttribute(REVEALED, "");

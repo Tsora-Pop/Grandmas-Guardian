@@ -1,0 +1,6 @@
+# Grandma's Guardian: always-blocked browser extensions (default list)
+# One extension ID per line; anything after the ID is a note.
+# Remote-control extensions let a "tech support" caller take over the browser.
+# Maintain and extend this list like the other lists: host your own copy and subscribe to it.
+inomeogfingihgjfjlpeplalcfajhgai  Chrome Remote Desktop
+gbchcmhmhahfdphkhkmpfmihenigjmpp  Chrome Remote Desktop (legacy app)

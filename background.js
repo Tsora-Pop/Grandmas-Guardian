@@ -2,30 +2,39 @@
 import {
   BUILTIN_DENY, DEFAULT_SETTINGS, DEFAULT_SUBSCRIPTIONS, LOG_CAPS, MANUAL_KEYS,
   PROTECTION_KEYS, REFRESH_MINUTES, checkParsedList, chunk, effectiveSettings, hostMatches,
-  OCTET, downloadAllowed, looksLikeHtml, mimeRequestFor, normalizeDomain, normalizeFor, normalizeMime, parseList, randomToken
+  OCTET, downloadAllowed, extensionRisk, looksLikeHtml, mimeRequestFor, normalizeDomain, normalizeExtId, normalizeFor, normalizeMime,
+  parseList, randomToken
 } from "./lib.js";
+import { CAN_HOLD_DOWNLOADS, CONSENT_ERROR, FORWARD_DATA, browserIdentity, hasDataConsent } from "./platform.js";
+import { secretGet, secretSet } from "./secrets.js";
+import { makeExtensionGuard } from "./extguard.js";
+import { enroll as supportEnroll, forgetKey as supportForgetKey, normalizeServerUrl, signedCall } from "./support.js";
 
 const BLOCKPAGE = chrome.runtime.getURL("blockpage.html");
 const DOWNLOAD_PAGE = chrome.runtime.getURL("downloadblocked.html");
+const EXT_PAGE = chrome.runtime.getURL("extensionblocked.html");
 const UI_PAGE = chrome.runtime.getURL("popup.html");
 const ICON = chrome.runtime.getURL("Guardian128.png");
 const VERSION = chrome.runtime.getManifest().version;
 const ALARM = "gg-refresh-lists";
 const FLUSH_ALARM = "gg-flush-logs";
+const SUPPORT_ALARM = "gg-support-sync";
 const MATCH_ALL = "^(https?://.*)$";
 const DOMAINS_PER_RULE = 2000;
 
 // Storage keys whose change means the blocking rules / effective lists must be rebuilt.
 const REBUILD_KEYS = new Set([
   ...Object.values(MANUAL_KEYS),
-  "subscriptions", "domainFilteringEnabled", "denyFilteringEnabled"
+  "subscriptions", "domainFilteringEnabled", "denyFilteringEnabled",
+  "serverAllow", "serverMime", "serverUnblock", "serverExtAllow", "serverExtUnblock", "extensionFilteringEnabled"
 ]);
 
 const PROTECTION_LABELS = {
   domainFilteringEnabled: "Website allowlisting",
   denyFilteringEnabled: "Always-block list",
   mimeFilteringEnabled: "Download file-type filter",
-  filteringEnabled: "Scam word filter"
+  filteringEnabled: "Scam word filter",
+  extensionFilteringEnabled: "Extension allowlisting"
 };
 
 // ---------------------------------------------------------------------------
@@ -71,6 +80,33 @@ async function loadManaged() {
   return managed;
 }
 let managedReady = loadManaged();
+
+// The collector's Authorization header is a credential: keep it out of chrome.storage.local
+// (readable by content scripts) and in the extension's own IndexedDB (secrets.js).
+async function moveSecretsOutOfStorage() {
+  const { forwardAuth } = await chrome.storage.local.get("forwardAuth");
+  if (typeof forwardAuth !== "string") return;
+  try {
+    if (forwardAuth) await secretSet("forwardAuth", forwardAuth);
+    await chrome.storage.local.remove("forwardAuth");
+    await chrome.storage.local.set({ forwardAuthSet: !!forwardAuth });
+  } catch {
+    // No IndexedDB here: leave it where it is rather than lose it.
+  }
+}
+const secretsReady = moveSecretsOutOfStorage().catch(() => {});
+
+/** The Authorization header for the collector: the organization's policy value, or the one saved on this computer. */
+async function forwardAuthHeader() {
+  await Promise.all([managedReady, secretsReady]);
+  if (typeof managed.forwardAuth === "string" && managed.forwardAuth) return managed.forwardAuth;
+  try {
+    const v = await secretGet("forwardAuth");
+    if (v) return v;
+  } catch {}
+  const { forwardAuth = "" } = await chrome.storage.local.get("forwardAuth");
+  return typeof forwardAuth === "string" ? forwardAuth : "";
+}
 
 async function getSettings() {
   await managedReady;
@@ -118,7 +154,7 @@ let cache = null; // { settings, sets }
 
 function computeEffective(all) {
   const settings = effectiveSettings(all, managed);
-  const sets = { allow: new Set(), deny: new Set(), mime: new Set(), scam: new Set() };
+  const sets = { allow: new Set(), deny: new Set(), mime: new Set(), scam: new Set(), extallow: new Set(), extdeny: new Set() };
   for (const [kind, key] of Object.entries(MANUAL_KEYS)) {
     for (const v of all[key] || []) {
       const n = normalizeFor(kind, v);
@@ -129,17 +165,60 @@ function computeEffective(all) {
     if (sub.enabled === false || !sets[sub.kind]) continue;
     for (const v of all[`sub:${sub.id}`] || []) sets[sub.kind].add(v);
   }
-  return { settings, sets };
+  // Approved by the support team (support server).
+  for (const v of all.serverAllow || []) { const n = normalizeFor("allow", v); if (n) sets.allow.add(n); }
+  for (const v of all.serverMime || []) { const n = normalizeFor("mime", v); if (n) sets.mime.add(n); }
+  // Always-block exceptions approved by the support team.
+  const exceptions = new Set();
+  for (const v of all.serverUnblock || []) { const n = normalizeFor("deny", v); if (n) exceptions.add(n); }
+  // Extensions approved by the team, and always-block exceptions for extensions.
+  for (const v of all.serverExtAllow || []) { const n = normalizeFor("extallow", v); if (n) sets.extallow.add(n); }
+  const extExceptions = new Set();
+  for (const v of all.serverExtUnblock || []) { const n = normalizeFor("extdeny", v); if (n) extExceptions.add(n); }
+  return { settings, sets, exceptions, extExceptions };
 }
 
-function denyListFor({ settings, sets }) {
+/** Is host blocked by the always-block list (after the team's exceptions)? */
+function isDenied(eff, host) {
+  if (eff.exceptions?.size && hostMatches(host, eff.exceptions)) return false;
+  return hostMatches(host, new Set(denyListFor(eff)));
+}
+
+/** Which always-block entry (and list) blocks a host, for the support team. */
+async function denialSource(host) {
+  const all = await chrome.storage.local.get(null);
+  const owns = list => {
+    let h = host;
+    while (h) {
+      if (list.includes(h)) return h;
+      const i = h.indexOf(".");
+      if (i < 0) return null;
+      h = h.slice(i + 1);
+    }
+    return null;
+  };
+  let e = owns((all[MANUAL_KEYS.deny] || []).map(v => normalizeFor("deny", v)).filter(Boolean));
+  if (e) return { entry: e, list: "Added on this computer" };
+  for (const sub of all.subscriptions || []) {
+    if (sub.kind !== "deny" || sub.enabled === false) continue;
+    e = owns(all[`sub:${sub.id}`] || []);
+    if (e) return { entry: e, list: sub.name || sub.url };
+  }
+  e = owns(BUILTIN_DENY);
+  if (e) return { entry: e, list: "Built-in remote-control sites" };
+  return { entry: host, list: "" };
+}
+
+function denyListFor({ settings, sets, exceptions }) {
   // Built-in remote-control sites: blocked unless the exact host is allowlisted
   // (same rule as v1). They stay blocked while website allowlisting is on, even
   // if the always-block list is switched off.
   const builtin = BUILTIN_DENY.filter(d => !sets.allow.has(d));
-  if (settings.denyFilteringEnabled) return [...new Set([...sets.deny, ...builtin])];
-  if (settings.domainFilteringEnabled) return builtin;
-  return [];
+  let list = [];
+  if (settings.denyFilteringEnabled) list = [...new Set([...sets.deny, ...builtin])];
+  else if (settings.domainFilteringEnabled) list = builtin;
+  // Entries the support team unblocked are taken out entirely.
+  return exceptions?.size ? list.filter(d => !exceptions.has(d)) : list;
 }
 
 async function getEffective() {
@@ -180,6 +259,15 @@ function buildRules(eff) {
     rules.push({
       id: id++, priority: 200, action: { type: "block" },
       condition: { requestDomains: part, resourceTypes: ["sub_frame"] }
+    });
+  }
+
+  // 1b) Always-block exceptions approved by the support team. Priority 250 beats a
+  //     parent entry still on the list (e.g. my.anydesk.com allowed, anydesk.com blocked).
+  if (eff.exceptions?.size && deny.length) {
+    rules.push({
+      id: id++, priority: 250, action: { type: "allow" },
+      condition: { requestDomains: [...eff.exceptions].sort(), resourceTypes: ["main_frame", "sub_frame"] }
     });
   }
 
@@ -245,7 +333,7 @@ function rebuild() {
     const mime = [...cache.sets.mime].sort();
     const counts = {
       allow: cache.sets.allow.size, deny: denyListFor(cache).length,
-      mime: mime.length, scam: scam.length
+      mime: mime.length, scam: scam.length, extallow: cache.sets.extallow.size, extdeny: cache.sets.extdeny.size
     };
     const patch = {};
     if (!sameArray(all.effectiveScamTerms, scam)) patch.effectiveScamTerms = scam;
@@ -254,6 +342,8 @@ function rebuild() {
     const managedInfo = { forced: !!managed.forceProtectionsOn, keys: Object.keys(managed) };
     if (JSON.stringify(all.managedInfo) !== JSON.stringify(managedInfo)) patch.managedInfo = managedInfo;
     if (Object.keys(patch).length) await chrome.storage.local.set(patch);
+    // Lists changed: apply them to installed extensions too.
+    if (cache.settings.extensionFilteringEnabled) extGuard.sweep("lists changed").catch(() => {});
   }).catch(e => console.error("Grandma's Guardian: rebuild failed", e));
   return rebuildChain;
 }
@@ -289,6 +379,10 @@ chrome.storage.onChanged.addListener((changes, area) => {
     }
     recordEvent({ type: c.newValue ? "protection_on" : "protection_off", setting: k, label: PROTECTION_LABELS[k] });
   }
+  const ex = changes.extensionFilteringEnabled;
+  if (ex && ex.oldValue !== undefined && ex.oldValue !== ex.newValue) {
+    recordEvent({ type: ex.newValue ? "protection_on" : "protection_off", setting: "extensionFilteringEnabled", label: PROTECTION_LABELS.extensionFilteringEnabled });
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -297,7 +391,9 @@ chrome.storage.onChanged.addListener((changes, area) => {
 const AUDIT_TYPES = new Set([
   "protection_on", "protection_off", "protection_change_blocked", "list_changed",
   "subscription_changed", "request_approved", "request_dismissed", "site_requested",
-  "mime_requested", "mime_request_approved", "mime_request_dismissed"
+  "mime_requested", "mime_request_approved", "mime_request_dismissed",
+  "support_connected", "support_disconnected", "support_decision", "setting_changed",
+  "extension_blocked", "extension_enabled", "extension_requested", "extension_request_approved", "extension_request_dismissed"
 ]);
 
 async function recordEvent(evt) {
@@ -353,6 +449,142 @@ function typesFromMessage(msg) {
   return [...new Set(raw.map(t => normalizeMime(t || "")).filter(Boolean))].slice(0, 20);
 }
 
+// ---------- support team (Guardian Support server) ----------
+async function supportState() {
+  const { supportServer = null } = await chrome.storage.local.get("supportServer");
+  return supportServer && supportServer.status === "connected" ? supportServer : null;
+}
+
+/** Send one request to the team. Returns true if the server has it. */
+async function sendToTeam(body) {
+  const r = await signedCall("POST", "/api/device/requests", body, VERSION);
+  if (r.status === 410) { await supportRevoked(); return false; }
+  if (r.ok) {
+    await updateKey("serverPending", list => (list.includes(body.localKey) ? undefined : [...list, body.localKey]));
+    // Drop an old decision for the same thing: this is a new question.
+    await updateKey("serverDecisions", map => {
+      if (!map[body.localKey]) return undefined;
+      delete map[body.localKey];
+      return map;
+    }, {});
+  }
+  scheduleSupportSync(1);
+  return r.ok;
+}
+
+let supportSyncing = null;
+function supportSync() {
+  if (supportSyncing) return supportSyncing;
+  supportSyncing = (async () => {
+    const st = await supportState();
+    if (!st) return { ok: false, error: "Not connected." };
+    const r = await signedCall("GET", "/api/device/sync", undefined, VERSION);
+    if (r.status === 410) { await supportRevoked(); return { ok: false, error: "This computer was disconnected by the support team." }; }
+    if (!r.ok) {
+      await patchSupport({ lastError: r.json?.error || `Server answered ${r.status}.`, lastTry: Date.now() });
+      scheduleSupportSync(5);
+      return { ok: false, error: r.json?.error };
+    }
+    const j = r.json;
+    const all = await chrome.storage.local.get(["serverAllow", "serverMime", "serverUnblock", "serverExtAllow", "serverExtUnblock",
+      "serverDecisions", "pendingRequests", "pendingMimeRequests", "pendingExtRequests"]);
+    const patch = {};
+    for (const [key, val] of [["serverAllow", j.allow], ["serverMime", j.mime], ["serverUnblock", j.unblock],
+      ["serverExtAllow", j.extAllow], ["serverExtUnblock", j.extUnblock]]) {
+      const v = Array.isArray(val) ? val.filter(x => typeof x === "string").slice(0, 20000) : [];
+      if (!sameArray(all[key] || [], v)) patch[key] = v;
+    }
+    patch.serverPending = Array.isArray(j.pending) ? j.pending : [];
+
+    // Decisions: remember them (the block/download pages show denials) and clear
+    // the matching local requests, so the popup doesn't show them as waiting.
+    const known = all.serverDecisions || {};
+    const fresh = [];
+    for (const d of j.decisions || []) {
+      const prev = known[d.localKey];
+      if (!prev || prev.decidedAt !== d.decidedAt) fresh.push(d);
+      known[d.localKey] = { status: d.status, note: d.note || "", decidedAt: d.decidedAt };
+    }
+    const keys = Object.keys(known).sort((a, b) => known[b].decidedAt - known[a].decidedAt);
+    for (const k of keys.slice(200)) delete known[k];
+    patch.serverDecisions = known;
+    await chrome.storage.local.set(patch);
+
+    if (fresh.length) {
+      const done = new Set(fresh.map(d => d.localKey));
+      await updateKey("pendingRequests", list => {
+        const next = list.filter(q => !done.has(`site:${q.domain}`));
+        return next.length === list.length ? undefined : next;
+      });
+      await updateKey("pendingMimeRequests", list => {
+        const next = list.filter(q => !done.has(`mime:${requestKey(requestTypes(q))}`));
+        return next.length === list.length ? undefined : next;
+      });
+      await updateKey("pendingExtRequests", list => {
+        const next = list.filter(q => !done.has(extKey(q.id)));
+        return next.length === list.length ? undefined : next;
+      });
+      for (const d of fresh) {
+        await recordEvent({ type: "support_decision", key: d.localKey, status: d.status, note: d.note || "" });
+      }
+    }
+
+    // Resend local requests the server doesn't have yet (e.g. made while offline).
+    const pendingSet = new Set(patch.serverPending);
+    for (const q of all.pendingRequests || []) {
+      const k = `site:${q.domain}`;
+      if (!pendingSet.has(k) && !known[k]) {
+        await signedCall("POST", "/api/device/requests", { kind: "site", localKey: k, domain: q.domain, url: q.url, context: { denied: q.denied || null } }, VERSION);
+      }
+    }
+    for (const q of all.pendingMimeRequests || []) {
+      const types = requestTypes(q);
+      const k = `mime:${requestKey(types)}`;
+      if (!pendingSet.has(k) && !known[k]) {
+        await signedCall("POST", "/api/device/requests", { kind: "mime", localKey: k, mimes: types, ext: q.ext || "", basis: q.basis || "type",
+          filename: q.filename || "", sourceUrl: /^https?:/i.test(q.sourceUrl || "") ? q.sourceUrl : "" }, VERSION);
+      }
+    }
+
+    for (const q of all.pendingExtRequests || []) {
+      const k = extKey(q.id);
+      if (!pendingSet.has(k) && !known[k]) {
+        await signedCall("POST", "/api/device/requests", { kind: "extension", localKey: k, extension: q.extension, context: { denied: q.denied || null } }, VERSION);
+      }
+    }
+
+    await patchSupport({ lastSync: Date.now(), lastError: null, orgName: j.orgName || undefined, deviceName: j.deviceName || undefined });
+    // Check every minute while something is waiting, otherwise every 15 minutes.
+    const waiting = patch.serverPending.length || (all.pendingRequests || []).length || (all.pendingMimeRequests || []).length || (all.pendingExtRequests || []).length;
+    scheduleSupportSync(waiting ? 1 : 15);
+    return { ok: true };
+  })().finally(() => { supportSyncing = null; });
+  return supportSyncing;
+}
+
+async function patchSupport(p) {
+  const { supportServer } = await chrome.storage.local.get("supportServer");
+  if (!supportServer) return;
+  const next = { ...supportServer };
+  for (const [k, v] of Object.entries(p)) if (v !== undefined) next[k] = v;
+  await chrome.storage.local.set({ supportServer: next });
+}
+
+function scheduleSupportSync(minutes) {
+  chrome.alarms.create(SUPPORT_ALARM, { delayInMinutes: Math.max(0.5, minutes) });
+}
+
+const SERVER_KEYS = ["serverAllow", "serverMime", "serverUnblock", "serverExtAllow", "serverExtUnblock", "serverPending", "serverDecisions"];
+
+/** The team disconnected this computer: its approvals no longer apply. */
+async function supportRevoked() {
+  await patchSupport({ status: "revoked", lastError: "This computer was disconnected by the support team." });
+  await chrome.storage.local.remove(SERVER_KEYS);
+  await supportForgetKey();
+  await chrome.alarms.clear(SUPPORT_ALARM);
+  await recordEvent({ type: "support_disconnected", by: "support team" });
+}
+
 // ---------- log forwarding (SIEM / collector / automation) ----------
 async function enqueueForward(evt) {
   const s = await getSettings();
@@ -397,6 +629,10 @@ function flushForward() {
   flushing = (async () => {
     const s = await getSettings();
     if (!s.forwardEnabled || !s.forwardUrl) return { ok: false, error: "Log forwarding is off." };
+    if (!(await hasDataConsent(FORWARD_DATA))) {
+      await chrome.storage.local.set({ forwardStatus: { ok: false, at: Date.now(), error: CONSENT_ERROR } });
+      return { ok: false, error: CONSENT_ERROR };
+    }
     const url = validCollectorUrl(s.forwardUrl);
     if (!url) {
       await chrome.storage.local.set({ forwardStatus: { ok: false, at: Date.now(), error: "The collector address must start with https://" } });
@@ -409,9 +645,11 @@ function flushForward() {
       const batch = forwardQueue.slice(0, 200);
       const { body, type } = formatBatch(batch, s.forwardFormat);
       const headers = { "Content-Type": type };
-      if (s.forwardAuth) headers.Authorization = s.forwardAuth;
+      const auth = await forwardAuthHeader();
+      if (auth) headers.Authorization = auth;
       try {
-        const res = await fetch(url, { method: "POST", headers, body, credentials: "omit" });
+        // No redirects: the credential and the events go only to the address that was set.
+        const res = await fetch(url, { method: "POST", headers, body, credentials: "omit", redirect: "error" });
         if (!res.ok) { result = { ok: false, error: `Collector answered ${res.status}.` }; break; }
       } catch {
         result = { ok: false, error: "Could not reach the collector." };
@@ -444,10 +682,14 @@ async function fetchList(url, kind) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 20000);
   try {
+    const bundled = url.startsWith(chrome.runtime.getURL(""));
+    if (!bundled && !validListUrl(url)) return { ok: false, error: LIST_HTTPS_ERROR };
     const res = await fetch(url, { cache: "no-cache", credentials: "omit", signal: ctrl.signal });
+    // A redirect must not lead somewhere insecure.
+    if (!bundled && res.url && !validListUrl(res.url)) return { ok: false, error: LIST_HTTPS_ERROR };
     if (!res.ok) return { ok: false, error: `The server answered "${res.status}".` };
-    const text = await res.text();
-    if (text.length > 25_000_000) return { ok: false, error: "The list is too large (over 25 MB)." };
+    const text = await readCapped(res, MAX_LIST_BYTES);
+    if (text == null) return { ok: false, error: "The list is too large (over 25 MB)." };
     if (looksLikeHtml(text, res.headers.get("content-type") || "")) {
       return { ok: false, error: "That address returned a web page, not a .txt list." };
     }
@@ -548,15 +790,47 @@ async function ensureAlarms() {
 chrome.alarms.onAlarm.addListener(alarm => {
   if (alarm.name === ALARM) syncAll();
   else if (alarm.name === FLUSH_ALARM) flushForward();
+  else if (alarm.name === SUPPORT_ALARM) supportSync();
 });
 
+/**
+ * Online lists decide what is allowed, so they must come over HTTPS (a list fetched
+ * over plain HTTP could be changed on the way to allow a scam site). Plain HTTP is
+ * accepted only from this computer itself, for testing. No user names or passwords
+ * in the address.
+ */
 function validListUrl(url) {
   try {
     const u = new URL(url);
-    return ["https:", "http:", "file:"].includes(u.protocol) ? u.href : null;
+    if (u.username || u.password) return null;
+    const local = ["localhost", "127.0.0.1", "[::1]"].includes(u.hostname);
+    return u.protocol === "https:" || (u.protocol === "http:" && local) ? u.href : null;
   } catch {
     return null;
   }
+}
+const LIST_HTTPS_ERROR = "Online lists must use an https:// address.";
+const MAX_LIST_BYTES = 25_000_000;
+
+/** Read a response body, stopping once it passes `max` bytes (so a huge reply can't exhaust memory). */
+async function readCapped(res, max) {
+  const declared = Number(res.headers.get("content-length") || 0);
+  if (declared > max) return null;
+  if (!res.body?.getReader) { const t = await res.text(); return t.length > max ? null : t; }
+  const reader = res.body.getReader();
+  const chunks = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > max) { reader.cancel().catch(() => {}); return null; }
+    chunks.push(value);
+  }
+  const all = new Uint8Array(size);
+  let at = 0;
+  for (const c of chunks) { all.set(c, at); at += c.byteLength; }
+  return new TextDecoder().decode(all);
 }
 
 // ---------------------------------------------------------------------------
@@ -581,6 +855,15 @@ chrome.runtime.onInstalled.addListener(async ({ reason }) => {
     }));
     patch.setupComplete = true;
   }
+  // Default lists added in later versions (e.g. always-blocked extensions in 2.7) are
+  // offered once; if the caregiver removes one, it doesn't come back.
+  const offered = new Set(current.offeredDefaults || ["default-allow", "default-deny", "default-mime", "default-scam"]);
+  const subs = patch.subscriptions || current.subscriptions;
+  if (Array.isArray(subs)) {
+    const extra = DEFAULT_SUBSCRIPTIONS.filter(d => !offered.has(d.id) && !subs.some(s => s.id === d.id));
+    if (extra.length) patch.subscriptions = [...subs, ...extra.map(d => ({ ...d, enabled: true }))];
+  }
+  patch.offeredDefaults = DEFAULT_SUBSCRIPTIONS.map(d => d.id);
   if (Object.keys(patch).length) await chrome.storage.local.set(patch);
 
   await managedReady;
@@ -596,6 +879,7 @@ chrome.runtime.onInstalled.addListener(async ({ reason }) => {
 });
 
 chrome.runtime.onStartup.addListener(async () => {
+  if (await supportState()) scheduleSupportSync(0.5);
   await ensureAlarms();
   await enforceForcedProtections();
   await rebuild();
@@ -606,18 +890,26 @@ chrome.runtime.onStartup.addListener(async () => {
 // Downloads: only allowed file types. onDeterminingFilename holds the download
 // until we answer, so it cannot finish before it is cancelled.
 // ---------------------------------------------------------------------------
-chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
-  handleDownload(item, suggest).catch(e => {
-    console.error("Grandma's Guardian: download check failed", e);
-    try { suggest(); } catch {}
+if (CAN_HOLD_DOWNLOADS) {
+  chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
+    handleDownload(item, suggest).catch(e => {
+      console.error("Grandma's Guardian: download check failed", e);
+      try { suggest(); } catch {}
+    });
+    return true; // we will call suggest() asynchronously
   });
-  return true; // we will call suggest() asynchronously
-});
+} else if (chrome.downloads?.onCreated) {
+  // Firefox can't hold a download while it's checked (no onDeterminingFilename), so
+  // it's checked the moment it starts, cancelled, and any partial file is deleted.
+  chrome.downloads.onCreated.addListener(item => {
+    handleDownload(item, () => {}, { late: true }).catch(e => console.error("Grandma's Guardian: download check failed", e));
+  });
+}
 
-async function handleDownload(item, suggest) {
-  // The extension's own log exports (data: files it builds itself) are always allowed.
+async function handleDownload(item, suggest, { late = false } = {}) {
+  // The extension's own log exports (data:/blob: files it builds itself) are always allowed.
   // A "Download again" started from the download-stopped page is checked like any other.
-  if (item.byExtensionId === chrome.runtime.id && /^data:/i.test(item.url || "")) {
+  if (item.byExtensionId === chrome.runtime.id && /^(data|blob):/i.test(item.url || "")) {
     suggest();
     return;
   }
@@ -638,6 +930,11 @@ async function handleDownload(item, suggest) {
 
   try { await chrome.downloads.cancel(item.id); } catch {}
   try { suggest(); } catch {}
+  if (late) {
+    // Remove whatever was written before the cancel, and the entry in the downloads list.
+    try { await chrome.downloads.removeFile(item.id); } catch {}
+    try { await chrome.downloads.erase({ id: item.id }); } catch {}
+  }
 
   const entry = {
     id: randomToken(8),
@@ -674,11 +971,15 @@ async function handleDownload(item, suggest) {
 
 // One "Download stopped" tab is reused, so a site that starts many downloads
 // can't flood the browser with tabs.
-async function openDownloadPage(id) {
-  const url = `${DOWNLOAD_PAGE}?id=${encodeURIComponent(id)}`;
+function openDownloadPage(id) {
+  return openSingleTab("ggDownloadTab", `${DOWNLOAD_PAGE}?id=${encodeURIComponent(id)}`);
+}
+
+/** Open (or reuse) one tab per kind of notice page. */
+async function openSingleTab(sessionKey, url) {
   let tabId = null;
   try {
-    ({ ggDownloadTab: tabId = null } = (await chrome.storage.session?.get("ggDownloadTab")) || {});
+    ({ [sessionKey]: tabId = null } = (await chrome.storage.session?.get(sessionKey)) || {});
   } catch {}
   if (tabId != null) {
     try {
@@ -691,16 +992,60 @@ async function openDownloadPage(id) {
   }
   try {
     const tab = await chrome.tabs.create({ url, active: true });
-    await chrome.storage.session?.set({ ggDownloadTab: tab.id });
+    await chrome.storage.session?.set({ [sessionKey]: tab.id });
   } catch (e) {
-    console.error("Grandma's Guardian: could not open the download page", e);
+    console.error("Grandma's Guardian: could not open a notice page", e);
   }
+}
+
+function notify(id, title, message) {
+  try {
+    if (chrome.notifications?.create) {
+      chrome.notifications.create(id, { type: "basic", iconUrl: ICON, title, message, priority: 1 }, () => void chrome.runtime.lastError);
+    }
+  } catch {}
+}
+
+// ---------------------------------------------------------------------------
+// Extensions: only allowed browser extensions may run (extguard.js)
+// ---------------------------------------------------------------------------
+const extGuard = makeExtensionGuard({ getEffective, getSettings, recordEvent, appendCapped, updateKey, notify, openSingleTab });
+extGuard.listen();
+chrome.permissions?.onAdded?.addListener(p => { if (p.permissions?.includes("management")) extGuard.listen(); });
+chrome.permissions?.onRemoved?.addListener(async p => {
+  if (p.permissions?.includes("management")) await chrome.storage.local.set({ extensionFilteringEnabled: false });
+});
+
+const extKey = id => `ext:${id}`;
+
+async function approveExtRequest(id, by) {
+  const res = await addManual("extallow", [id], by);
+  await updateKey("pendingExtRequests", list => list.filter(r => r.id !== id));
+  await recordEvent({ type: "extension_request_approved", id, by, ok: !!res.added, skippedDenied: res.skippedDenied });
+  return res;
+}
+
+async function dismissExtRequest(id, by) {
+  await updateKey("pendingExtRequests", list => list.filter(r => r.id !== id));
+  await recordEvent({ type: "extension_request_dismissed", id, by });
+  return { ok: true };
+}
+
+/** Which always-block list holds an extension (shown to the support team). */
+async function extDenialSource(id) {
+  const all = await chrome.storage.local.get(null);
+  if ((all[MANUAL_KEYS.extdeny] || []).map(v => normalizeFor("extdeny", v)).includes(id)) return { entry: id, list: "Added on this computer" };
+  for (const sub of all.subscriptions || []) {
+    if (sub.kind === "extdeny" && sub.enabled !== false && (all[`sub:${sub.id}`] || []).includes(id)) return { entry: id, list: sub.name || sub.url };
+  }
+  return { entry: id, list: "Always-blocked extensions" };
 }
 
 if (chrome.notifications?.onClicked) {
   chrome.notifications.onClicked.addListener(nid => {
-    if (!nid.startsWith("gg-download-")) return;
-    openDownloadPage(nid.slice("gg-download-".length));
+    if (nid.startsWith("gg-download-")) openDownloadPage(nid.slice("gg-download-".length));
+    else if (nid.startsWith("gg-ext-")) openSingleTab("ggExtensionTab", `${EXT_PAGE}?id=${encodeURIComponent(nid.slice("gg-ext-".length))}`);
+    else return;
     chrome.notifications.clear(nid);
   });
 }
@@ -718,9 +1063,14 @@ async function addManual(kind, rawValues, by = "settings page") {
   let skippedDenied = [];
   let toAdd = values;
   if (kind === "allow") {
-    const deny = new Set(denyListFor(await getEffective()));
-    skippedDenied = values.filter(v => hostMatches(v, deny));
-    toAdd = values.filter(v => !hostMatches(v, deny));
+    const eff = await getEffective();
+    skippedDenied = values.filter(v => isDenied(eff, v));
+    toAdd = values.filter(v => !isDenied(eff, v));
+  } else if (kind === "extallow") {
+    const eff = await getEffective();
+    const denied = v => eff.sets.extdeny.has(v) && !eff.extExceptions.has(v);
+    skippedDenied = values.filter(denied);
+    toAdd = values.filter(v => !denied(v));
   }
   const addedValues = [];
   if (toAdd.length) {
@@ -746,6 +1096,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     // Only a top-level block page counts, so other sites can't iframe it to spam the log.
     blockPage: url.startsWith(BLOCKPAGE) && sender.frameId === 0,
     downloadPage: url.startsWith(DOWNLOAD_PAGE) && sender.frameId === 0,
+    extPage: url.startsWith(EXT_PAGE) && sender.frameId === 0,
     ui: url.startsWith(UI_PAGE),
     // Our content script running in a web page.
     content: !!sender.tab && /^https?:/i.test(url || sender.tab.url || "") && !url.startsWith("chrome-extension:"),
@@ -846,7 +1197,13 @@ async function handleMessage(msg, ctx) {
     if (isNew) {
       await recordEvent({ type: "mime_requested", mimes: types, basis: plan.basis, ext: plan.ext, filename: d.filename, sourceUrl: d.sourceUrl });
     }
-    return { ok: true, mimes: types, basis: plan.basis, ext: plan.ext, alreadyRequested: !isNew };
+    const support = await supportState();
+    let sentToTeam = false;
+    if (support) {
+      sentToTeam = await sendToTeam({ kind: "mime", localKey: `mime:${key}`, mimes: types, ext: plan.ext, basis: plan.basis,
+        filename: d.filename, sourceUrl: /^https?:/i.test(d.sourceUrl) ? d.sourceUrl : "" });
+    }
+    return { ok: true, mimes: types, basis: plan.basis, ext: plan.ext, alreadyRequested: !isNew, sentToTeam, teamName: support?.orgName || null };
   }
 
   if (msg.type === "checkMime" && ctx.downloadPage) {
@@ -857,12 +1214,16 @@ async function handleMessage(msg, ctx) {
     const s = await getSettings();
     const plan = mimeRequestFor(d.mimeType, d.filename);
     const missing = plan.mimes.filter(t => !effectiveMimeTypes.includes(t));
+    const { serverDecisions = {}, serverPending = [] } = await chrome.storage.local.get(["serverDecisions", "serverPending"]);
+    const teamKey = `mime:${requestKey(missing)}`;
     return {
       ok: true,
       allowed: !s.mimeFilteringEnabled || downloadAllowed(d.mimeType, d.filename, effectiveMimeTypes),
       pending: pendingMimeRequests.some(r => requestKey(requestTypes(r)) === requestKey(missing)),
       basis: plan.basis, ext: plan.ext, mimes: missing,
-      octetAllowed: effectiveMimeTypes.includes(OCTET)
+      octetAllowed: effectiveMimeTypes.includes(OCTET),
+      teamDecision: serverDecisions[teamKey] || null,
+      teamPending: serverPending.includes(teamKey)
     };
   }
 
@@ -884,6 +1245,59 @@ async function handleMessage(msg, ctx) {
     }
   }
 
+  // --- from the extension-stopped page ---
+  if (msg.type === "checkExtension" && ctx.extPage) {
+    const id = normalizeExtId(msg.id);
+    if (!id) return { ok: false };
+    const info = await extGuard.info(id);
+    const { extensionLog = [], pendingExtRequests = [], serverDecisions = {}, serverPending = [] } =
+      await chrome.storage.local.get(["extensionLog", "pendingExtRequests", "serverDecisions", "serverPending"]);
+    // Still installed: read it fresh. Removed: what was logged.
+    const ext = info ? extGuard.summarize(info) : [...extensionLog].reverse().find(e => e.id === id) || null;
+    if (!ext) return { ok: false };
+    const eff = await getEffective();
+    const decision = info ? extGuard.decide(info, eff) : "removed";
+    const support = await supportState();
+    return {
+      ok: true, extension: ext, ...extensionRisk(ext), decision, installed: !!info, enabled: !!info?.enabled,
+      canDisable: !!info && info.mayDisable !== false,
+      pending: pendingExtRequests.some(r => r.id === id),
+      teamDecision: serverDecisions[extKey(id)] || null, teamPending: serverPending.includes(extKey(id)),
+      team: support?.orgName || null
+    };
+  }
+
+  if (msg.type === "requestExtension" && ctx.extPage) {
+    const id = normalizeExtId(msg.id);
+    const info = id && await extGuard.info(id);
+    if (!info) return { ok: false, error: "That extension isn't installed any more." };
+    const eff = await getEffective();
+    const d = extGuard.decide(info, eff);
+    if (d === "allow" || d === "policy" || d === "self" || d === "theme") return { ok: true, nowAllowed: true };
+    const support = await supportState();
+    let denied = null;
+    if (d === "deny") {
+      if (!support) return { ok: false, error: "This extension is on the always-blocked list." };
+      denied = await extDenialSource(id);
+    }
+    // Built from what the browser reports, never from what the page sends.
+    const extension = extGuard.summarize(info);
+    const req = { id, extension, timestamp: new Date().toISOString(), ...(denied ? { denied } : {}) };
+    let isNew = false;
+    await appendCapped("pendingExtRequests", req, LOG_CAPS.pendingExtRequests, list => {
+      const dup = list.some(r => r.id === id);
+      isNew = !dup;
+      return dup;
+    });
+    if (isNew) {
+      await appendCapped("extensionLog", { timestamp: req.timestamp, ...extension, action: "requested" }, LOG_CAPS.extensionLog);
+      await recordEvent({ type: "extension_requested", extension, flags: extensionRisk(extension).flags.map(f => f.code), denied });
+    }
+    let sentToTeam = false;
+    if (support) sentToTeam = await sendToTeam({ kind: "extension", localKey: extKey(id), extension, context: { denied } });
+    return { ok: true, alreadyRequested: !isNew, sentToTeam, teamName: support?.orgName || null };
+  }
+
   if (msg.type === "checkSite" && ctx.blockPage) {
     // Lets an open block page notice that its site has since been allowed.
     let host;
@@ -895,20 +1309,28 @@ async function handleMessage(msg, ctx) {
       return { ok: false };
     }
     const eff = await getEffective();
-    const denied = hostMatches(host, new Set(denyListFor(eff)));
+    const denied = isDenied(eff, host);
     const allowed = !denied && (!eff.settings.domainFilteringEnabled || hostMatches(host, eff.sets.allow));
-    return { ok: true, allowed, denied };
+    // What the support team decided, if anything (shown on the block page).
+    const domain = normalizeDomain(host, { stripWww: true, allowLocal: true });
+    const { serverDecisions = {}, serverPending = [] } = await chrome.storage.local.get(["serverDecisions", "serverPending"]);
+    const team = serverDecisions[`site:${domain}`] || null;
+    return { ok: true, allowed, denied, teamDecision: team, teamPending: serverPending.includes(`site:${domain}`) };
   }
 
   if (msg.type === "requestSite" && ctx.blockPage) {
     const url = cleanUrl(msg.url);
-    const domain = normalizeDomain(url, { stripWww: true });
+    const domain = normalizeDomain(url, { stripWww: true, allowLocal: true });
     if (!domain) return { ok: false, error: "That address can't be added." };
     const eff = await getEffective();
-    if (hostMatches(domain, new Set(denyListFor(eff)))) {
-      return { ok: false, error: "This site is on the always-blocked list." };
+    const support = await supportState();
+    let denied = null;
+    if (isDenied(eff, domain)) {
+      // Only a support team can lift the always-block list, and it is shown why.
+      if (!support) return { ok: false, error: "This site is on the always-blocked list." };
+      denied = await denialSource(domain);
     }
-    const req = { domain, url, timestamp: new Date().toISOString() };
+    const req = { domain, url, timestamp: new Date().toISOString(), ...(denied ? { denied } : {}) };
     let isNew = false;
     await appendCapped("pendingRequests", req, LOG_CAPS.pendingRequests, list => {
       const dup = list.some(r => r.domain === domain);
@@ -916,7 +1338,11 @@ async function handleMessage(msg, ctx) {
       return dup;
     });
     if (isNew) await recordEvent({ type: "site_requested", domain, url });
-    return { ok: true, domain };
+    let sentToTeam = false;
+    if (support) {
+      sentToTeam = await sendToTeam({ kind: "site", localKey: `site:${domain}`, domain, url, context: { denied } });
+    }
+    return { ok: true, domain, sentToTeam, teamName: support?.orgName || null };
   }
 
   if (!ctx.ui) return { ok: false, error: "Not allowed." };
@@ -932,7 +1358,7 @@ async function handleMessage(msg, ctx) {
 
     case "addSubscription": {
       const url = validListUrl(msg.url);
-      if (!url || !MANUAL_KEYS[msg.kind]) return { ok: false, error: "Please enter a full web address (https://…)." };
+      if (!url || !MANUAL_KEYS[msg.kind]) return { ok: false, error: "Please enter a full web address starting with https://" };
       const id = `user-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
       let duplicate = false;
       const name = (msg.name || "").slice(0, 80) || new URL(url).hostname;
@@ -975,6 +1401,30 @@ async function handleMessage(msg, ctx) {
     case "addManual":
       return addManual(msg.kind, msg.values);
 
+    case "extensionsList":
+      return extGuard.list();
+
+    case "extensionsTurnOn":
+      return extGuard.turnOn();
+
+    case "extensionsTurnOff":
+      return extGuard.turnOff();
+
+    case "extensionsCheck":
+      return extGuard.sweep("checked from settings");
+
+    case "approveExtRequest": {
+      const id = normalizeExtId(msg.id);
+      if (!id) return { ok: false, error: "Unknown extension." };
+      return approveExtRequest(id, "settings page");
+    }
+
+    case "dismissExtRequest": {
+      const id = normalizeExtId(msg.id);
+      if (!id) return { ok: false };
+      return dismissExtRequest(id, "settings page");
+    }
+
     case "removeManual": {
       const key = MANUAL_KEYS[msg.kind];
       if (!key) return { ok: false };
@@ -998,6 +1448,42 @@ async function handleMessage(msg, ctx) {
     case "dismissRequest":
       return dismissRequest(msg.domain, "settings page");
 
+    case "supportConnect": {
+      if (await supportState()) return { ok: false, error: "Already connected. Disconnect first." };
+      const server = normalizeServerUrl(msg.serverUrl);
+      if (!server) return { ok: false, error: "Enter the server address, starting with https://" };
+      const code = String(msg.code || "").trim();
+      if (!code) return { ok: false, error: "Enter the connection code." };
+      const s = await getSettings();
+      const r = await supportEnroll({
+        serverUrl: server, code, version: VERSION,
+        name: String(msg.name || "").slice(0, 80) || s.personName || "Computer",
+        personName: s.personName || "",
+        account: await browserIdentity()
+      });
+      if (!r.ok) return r;
+      await chrome.storage.local.remove(SERVER_KEYS);
+      await chrome.storage.local.set({
+        supportServer: { status: "connected", server: r.server, orgName: r.orgName, serverName: r.serverName, deviceName: String(msg.name || ""), connectedAt: Date.now(), lastSync: null, lastError: null }
+      });
+      await recordEvent({ type: "support_connected", server: r.server, org: r.orgName });
+      await supportSync();
+      return { ok: true, orgName: r.orgName };
+    }
+
+    case "supportDisconnect": {
+      const st = await supportState();
+      if (st) await signedCall("POST", "/api/device/disconnect", {}, VERSION); // best effort
+      await chrome.storage.local.remove([...SERVER_KEYS, "supportServer"]);
+      await supportForgetKey();
+      await chrome.alarms.clear(SUPPORT_ALARM);
+      await recordEvent({ type: "support_disconnected", by: "settings page", server: st?.server || null });
+      return { ok: true };
+    }
+
+    case "supportSync":
+      return supportSync();
+
     case "approveMimeRequest": {
       const types = typesFromMessage(msg);
       if (!types.length) return { ok: false, error: "Nothing to allow." };
@@ -1008,7 +1494,7 @@ async function handleMessage(msg, ctx) {
       return dismissMimeRequest(typesFromMessage(msg), "settings page");
 
     case "clearLog":
-      if (!["blockedLog", "blockedDownloads", "scamLog", "auditLog"].includes(msg.key)) return { ok: false };
+      if (!["blockedLog", "blockedDownloads", "scamLog", "auditLog", "extensionLog"].includes(msg.key)) return { ok: false };
       await chrome.storage.local.set({ [msg.key]: [] });
       return { ok: true };
 
@@ -1016,13 +1502,15 @@ async function handleMessage(msg, ctx) {
       const s = await getSettings();
       if (!s.forwardUrl) return { ok: false, error: "Enter a collector address first." };
       if (!validCollectorUrl(s.forwardUrl)) return { ok: false, error: "The collector address must start with https://" };
+      if (!(await hasDataConsent(FORWARD_DATA))) return { ok: false, error: CONSENT_ERROR };
       const { installId } = await chrome.storage.local.get("installId");
       const test = { id: randomToken(8), time: new Date().toISOString(), type: "test", product: "grandmas-guardian", version: VERSION, person: s.personName || undefined, installId };
       const { body, type } = formatBatch([test], s.forwardFormat);
       const headers = { "Content-Type": type };
-      if (s.forwardAuth) headers.Authorization = s.forwardAuth;
+      const auth = await forwardAuthHeader();
+      if (auth) headers.Authorization = auth;
       try {
-        const res = await fetch(validCollectorUrl(s.forwardUrl), { method: "POST", headers, body, credentials: "omit" });
+        const res = await fetch(validCollectorUrl(s.forwardUrl), { method: "POST", headers, body, credentials: "omit", redirect: "error" });
         return res.ok ? { ok: true } : { ok: false, error: `Collector answered ${res.status}.` };
       } catch {
         return { ok: false, error: "Could not reach the collector." };
@@ -1031,6 +1519,22 @@ async function handleMessage(msg, ctx) {
 
     case "flushForward":
       return flushForward();
+
+    case "setForwardAuth": {
+      await managedReady;
+      if (typeof managed.forwardAuth === "string") return { ok: false, error: "Set by your organization." };
+      const value = typeof msg.value === "string" ? msg.value.trim().slice(0, 2000) : "";
+      if (/[\r\n]/.test(value)) return { ok: false, error: "The header can't contain line breaks." };
+      try {
+        await secretSet("forwardAuth", value);
+        await chrome.storage.local.remove("forwardAuth");
+      } catch {
+        await chrome.storage.local.set({ forwardAuth: value }); // no IndexedDB available
+      }
+      await chrome.storage.local.set({ forwardAuthSet: !!value });
+      await recordEvent({ type: "setting_changed", setting: "forwardAuth", value: value ? "(changed)" : "(removed)" });
+      return { ok: true };
+    }
 
     case "rebuild":
       await rebuild();

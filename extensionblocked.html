@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Extension stopped</title>
+  <link rel="stylesheet" href="ui.css">
+</head>
+<body class="blockpage">
+  <main class="block-card" aria-labelledby="title">
+    <img src="Guardian128.png" alt="" width="72" height="72">
+    <h1 id="title">This extension was turned off</h1>
+    <p id="reason" class="lead">It isn't on your list of allowed extensions.</p>
+    <p id="warning" class="warning" hidden></p>
+
+    <div class="file-box">
+      <div class="file-row"><span class="file-label">Extension</span><span id="extName" class="file-value"></span></div>
+      <div class="file-row"><span class="file-label">From</span><span id="extSource" class="file-value"></span></div>
+      <div class="file-row"><span class="file-label">Version</span><span id="extVersion" class="file-value"></span></div>
+      <div class="file-row"><span class="file-label">ID</span><code id="extId" class="file-value mime"></code></div>
+      <div class="file-row"><span class="file-label">It can</span><ul id="extPerms" class="perm-list file-value"></ul></div>
+    </div>
+
+    <div id="helperBox" class="helper" hidden>
+      <span>Not sure? Call <strong id="helperName"></strong><span id="helperPhoneWrap"> at <a id="helperPhone"></a></span>.</span>
+    </div>
+
+    <div class="actions">
+      <button id="requestBtn" class="btn" type="button">Ask to allow this extension</button>
+      <button id="removeBtn" class="btn" type="button" hidden>Remove it from the browser</button>
+      <button id="closeBtn" class="btn" type="button">Close</button>
+    </div>
+    <p id="requestStatus" class="status" role="status"></p>
+  </main>
+  <script src="extensionblocked.js"></script>
+</body>
+</html>
