@@ -72,8 +72,12 @@
 
   // Go back: return to the previous page, or close the tab if there is none.
   $("backBtn").addEventListener("click", async () => {
-    if (history.length > 1) {
-      history.back();
+    // Re-opened after the browser refused it: the entry before this one is the
+    // browser's error page, so step over it (or close the tab if nothing is before it).
+    const recovered = new URLSearchParams(location.search).get("rec") === "1";
+    const steps = recovered ? 2 : 1;
+    if (history.length > steps) {
+      history.go(-steps);
       return;
     }
     const tab = await chrome.tabs.getCurrent();

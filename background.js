@@ -1041,6 +1041,35 @@ async function extDenialSource(id) {
   return { entry: id, list: "Always-blocked extensions" };
 }
 
+// ---------------------------------------------------------------------------
+// Block page refused by the browser. Chromium (Chrome, Edge, Vivaldi…) won't
+// follow a redirect to an extension page when the navigation has no web page
+// behind it: a link opened from another app (Gmail on Android), the address bar,
+// a bookmark. It shows its own "…is blocked / ERR_BLOCKED_BY_CLIENT" page with a
+// Reload button instead. The site itself was still never contacted. Open the
+// same block page in that tab from here, which the browser allows, the same
+// thing Reload does.
+// ---------------------------------------------------------------------------
+const blockPageRetries = new Map(); // tabId -> { n, at }
+if (chrome.webNavigation?.onErrorOccurred) {
+  chrome.webNavigation.onErrorOccurred.addListener(details => {
+    if (details.frameId !== 0 || details.tabId < 0) return;
+    if (!/ERR_BLOCKED_BY_CLIENT/.test(details.error || "")) return;
+    if (!String(details.url || "").startsWith(`${BLOCKPAGE}?`)) return; // only our own block page
+    const now = Date.now();
+    const r = blockPageRetries.get(details.tabId);
+    const n = r && now - r.at < 10_000 ? r.n + 1 : 1;
+    if (n > 2) return; // never loop
+    blockPageRetries.set(details.tabId, { n, at: now });
+    // Mark it, so the page's "Go back" skips the browser's error page left in the history.
+    const i = details.url.indexOf("#");
+    const head = i < 0 ? details.url : details.url.slice(0, i);
+    const url = /[?&]rec=1(&|$)/.test(head) ? details.url : `${head}&rec=1${i < 0 ? "" : details.url.slice(i)}`;
+    chrome.tabs.update(details.tabId, { url }).catch(() => {});
+  });
+  chrome.tabs?.onRemoved?.addListener(tabId => blockPageRetries.delete(tabId));
+}
+
 if (chrome.notifications?.onClicked) {
   chrome.notifications.onClicked.addListener(nid => {
     if (nid.startsWith("gg-download-")) openDownloadPage(nid.slice("gg-download-".length));
